@@ -8,7 +8,6 @@ import (
 )
 
 func TestUnmarshalWKT(t *testing.T) {
-	type args struct{}
 	tests := []struct {
 		name    string
 		data    string
@@ -44,7 +43,6 @@ func TestUnmarshalWKT(t *testing.T) {
 }
 
 func TestUnmarshalWKB(t *testing.T) {
-	type args struct{}
 	tests := []struct {
 		name   string
 		data   []byte
@@ -81,8 +79,41 @@ func TestUnmarshalWKB(t *testing.T) {
 	}
 }
 
+func TestType(t *testing.T) {
+	tests := []struct {
+		name  string
+		data  string
+		gType GeomType
+	}{
+		{
+			"happy path loading point",
+			"POINT(3.4960937500000044 46.92577378420556)",
+			Point,
+		},
+
+		{
+			"happy linestring",
+			`LINESTRING(16.679687500000004 21.62409085687848,26.171875000000004 16.980468908152968,31.796875000000004 22.60118572275353)`,
+			LineString,
+		},
+
+		{
+			"happy poilygon",
+			`POLYGON((25.117187500000004 27.22274144161766,27.753906250000004 22.276241186534797,14.746093750000004 22.763371521603837,25.117187500000004 27.22274144161766))`,
+			Polygon,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g, err := UnmarshalWKT(tt.data)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.gType, g.Type())
+		})
+	}
+}
+
 func TestUnmarshalGeoJSON(t *testing.T) {
-	type args struct{}
 	tests := []struct {
 		name    string
 		data    string
@@ -401,6 +432,37 @@ func TestIntersects(t *testing.T) {
 			g2 := geomFromWKT(t, tt.in2)
 			t.Run("fwd", runTest(g1, g2))
 			t.Run("rev", runTest(g2, g1))
+		})
+	}
+}
+
+func TestAsPoly(t *testing.T) {
+	tests := []struct {
+		name  string
+		data  string
+		valid bool
+	}{
+		{
+			"happy path loading point",
+			"POLYGON((40 40,20 45,45 30,40 40))",
+			true,
+		},
+		{
+			"point not a polygon",
+			"POINT(0 0)",
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g, err := UnmarshalWKT(tt.data)
+			require.NoError(t, err)
+			p, valid := g.AsPoly()
+			require.Equal(t, tt.valid, valid)
+			if valid {
+				require.Equal(t, tt.data, p.AsGeom().AsText())
+				require.Equal(t, Polygon, p.AsGeom().Type())
+			}
 		})
 	}
 }

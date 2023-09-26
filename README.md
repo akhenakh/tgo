@@ -4,7 +4,7 @@ tgo
 
 Go bindings for [tidwall/tg](https://github.com/tidwall/tg) Geometry library for C - Fast point-in-polygon 
 
-This is a partial but functioning port, tg is a very small self contained C library, that is compiled by tgo, no external dependencies needed.
+This is partial but functional, tg is a very small self contained C library, tgo compiles tg, no external dependencies needed.
 
 ## Usage
 
@@ -37,6 +37,18 @@ g, _ := tgp.UnmarshalWKB(input)
 ```go
 if Intersects(g1, g2) {
 	fmt.Println("Intersects")
+}
+```
+
+#### Types
+
+```go
+input := "POLYGON((0 0,0 1,1 1,1 0,0 0))"
+g, _ := tgo.UnmarshalWKT(input)
+
+if g.Types() == tgo.Polygon() {
+	p, _ := g.AsPoly()
+	p.HolesCount()
 }
 ```
 
