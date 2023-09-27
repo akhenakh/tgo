@@ -1,6 +1,7 @@
 package tgo
 
 /*
+#cgo LDFLAGS: -lm
 #include "tg.h"
 #include <stdlib.h>
 */
