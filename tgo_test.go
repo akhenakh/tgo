@@ -31,7 +31,7 @@ func TestUnmarshalWKT(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g, err := UnmarshalWKT(tt.data)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GeomFromWKT() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("UnmarshalWKT() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if tt.wantErr {
@@ -67,7 +67,7 @@ func TestUnmarshalWKB(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g, err := UnmarshalWKB(tt.data)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GeomFromWKT() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("UnmarshalWKB() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if tt.wantErr {
@@ -77,6 +77,26 @@ func TestUnmarshalWKB(t *testing.T) {
 			require.Equal(t, tt.asText, g.AsText())
 		})
 	}
+}
+
+func TestProperties(t *testing.T) {
+	data := `{"type":"Feature","id": 42, "properties":{"gid":42},"geometry":{"coordinates":[-79.20159897229003,43.636785010689835],"type":"Point"}}`
+
+	g, err := UnmarshalGeoJSON([]byte(data))
+	require.NoError(t, err)
+	require.NotNil(t, g)
+	require.Equal(t, `{"id":42,"properties":{"gid":42}}`, g.Properties())
+}
+
+func TestClockWise(t *testing.T) {
+	data := `{"type":"Feature","properties":{},"geometry":{"coordinates":[[[23.88794461189528,20.81040929222499],[21.92555341369615,18.48397415261995],[24.443281893242727,17.277538526226436],[24.838766017741136,16.941646718685746],[28.47375966780686,18.128593021712774],[26.105830861822653,22.14336323529541],[23.88794461189528,20.81040929222499]]],"type":"Polygon"}}`
+
+	g, err := UnmarshalGeoJSON([]byte(data))
+	require.NoError(t, err)
+	require.NotNil(t, g)
+	p, valid := g.AsPoly()
+	require.True(t, valid)
+	require.False(t, p.IsClockWise()) // modern GeoJSON are CCW
 }
 
 func TestType(t *testing.T) {
@@ -137,7 +157,7 @@ func TestUnmarshalGeoJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g, err := UnmarshalGeoJSON([]byte(tt.data))
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GeomFromWKT() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("UnmarshalGeoJSON() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if tt.wantErr {

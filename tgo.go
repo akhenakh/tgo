@@ -137,6 +137,23 @@ func Touches(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_touches(g1.cg, g2.cg))
 }
 
+// MemSize returns the allocation size of the geometry in the C world.
+func (g *Geom) MemSize() int {
+	return int(C.tg_geom_memsize(g.cg))
+}
+
+// Properties returns a string that represents any extra JSON from a parsed GeoJSON
+// geometry. Such as the "id" or "properties" fields.
+func (g *Geom) Properties() string {
+	return C.GoString(C.tg_geom_extra_json(g.cg))
+}
+
+// func (g *Geom) RingSearch() {
+// 	r := C.tg_ring_new(points, len(coords)/2)
+// 	C.tg_ring_ring_search(g.cg,r, bool(*iter)(struct tg_segment aseg, int aidx, struct tg_segment bseg, int bidx, void *udata), void *udata);
+// 	C.tg_ring_free(r)
+// }
+
 func (g *Geom) AsPoly() (*Poly, bool) {
 	cp := C.tg_geom_poly(g.cg)
 

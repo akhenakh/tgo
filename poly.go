@@ -22,6 +22,10 @@ func (p *Poly) AsGeom() *Geom {
 	}
 }
 
+func (p *Poly) IsClockWise() bool {
+	return bool(C.tg_poly_clockwise(p.cp))
+}
+
 func (p *Poly) AsText() string {
 	return p.AsGeom().AsText()
 }
