@@ -1,5 +1,7 @@
 tgo
 ---
+![Tests](https://github.com/akhenakh/tgo/actions/workflows/build.yml/badge.svg)
+
 [![GoDoc](https://pkg.go.dev/badge/github.com/akhenakh/tgp)](https://pkg.go.dev/github.com/akhenakh/tgo)
 
 Go bindings for [tidwall/tg](https://github.com/tidwall/tg) Geometry library for C - Fast point-in-polygon 
