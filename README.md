@@ -1,6 +1,6 @@
 tgo
 ---
-
+[![GoDoc](https://pkg.go.dev/badge/github.com/akhenakh/tgp)](https://pkg.go.dev/github.com/akhenakh/tgo)
 
 Go bindings for [tidwall/tg](https://github.com/tidwall/tg) Geometry library for C - Fast point-in-polygon 
 
@@ -30,7 +30,7 @@ g, _ := tgo.UnmarshalGeoJSON(input)
 #### Read from WKB
 ```go
 input := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 248, 63, 0, 0, 0, 0, 0, 0, 4, 64}
-g, _ := tgp.UnmarshalWKB(input)
+g, _ := tgo.UnmarshalWKB(input)
 ```
 
 #### Intersects
