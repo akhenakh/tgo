@@ -133,6 +133,47 @@ func TestType(t *testing.T) {
 	}
 }
 
+func TestStabOne(t *testing.T) {
+	tests := []struct {
+		name       string
+		data       string
+		x, y       float64
+		properties string
+	}{
+		{
+			"Stab ulaval",
+			`{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"ulaval"},"geometry":{"coordinates":[[[-71.2861158156532,46.78438884414189],[-71.2861158156532,46.77544964967328],[-71.26549478226207,46.77544964967328],[-71.26549478226207,46.78438884414189],[-71.2861158156532,46.78438884414189]]],"type":"Polygon"},"id":0},{"type":"Feature","properties":{},"geometry":{"coordinates":[[[-71.23820152008842,46.754186210420016],[-71.23820152008842,46.74484103621441],[-71.21824842636401,46.74484103621441],[-71.21824842636401,46.754186210420016],[-71.23820152008842,46.754186210420016]]],"type":"Polygon"}}]}`,
+			-71.27531806307407,
+			46.779181775606475,
+			`{"properties":{"name":"ulaval"},"id":0}`,
+		},
+		{
+			"Stab not in",
+			`{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"ulaval"},"geometry":{"coordinates":[[[-71.2861158156532,46.78438884414189],[-71.2861158156532,46.77544964967328],[-71.26549478226207,46.77544964967328],[-71.26549478226207,46.78438884414189],[-71.2861158156532,46.78438884414189]]],"type":"Polygon"},"id":0},{"type":"Feature","properties":{},"geometry":{"coordinates":[[[-71.23820152008842,46.754186210420016],[-71.23820152008842,46.74484103621441],[-71.21824842636401,46.74484103621441],[-71.21824842636401,46.754186210420016],[-71.23820152008842,46.754186210420016]]],"type":"Polygon"}}]}`,
+			-71.23013567334728,
+			46.758492232981865,
+			``,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g, err := UnmarshalGeoJSON([]byte(tt.data))
+			require.NoError(t, err)
+
+			found := g.StabOne(tt.x, tt.y)
+
+			if tt.properties == "" {
+				require.Nil(t, found)
+
+				return
+			}
+
+			require.NotNil(t, found)
+			require.Equal(t, tt.properties, found.Properties())
+		})
+	}
+}
+
 func TestUnmarshalGeoJSON(t *testing.T) {
 	tests := []struct {
 		name    string

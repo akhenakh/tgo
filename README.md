@@ -42,6 +42,17 @@ if Intersects(g1, g2) {
 }
 ```
 
+#### Point in Polygon on large FeatureCollections
+```go
+
+// load your collection using UnmarshalGeoJSON
+found := g.StabOne(2, 48)
+if found != nil {
+	fmt.Println(found.Properties())
+}
+// Output: {"properties":{ "ADMIN": "France", "ISO_A2": "FR", "ISO_A3": "FRA" }}
+```
+
 #### Types
 
 ```go

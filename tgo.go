@@ -4,6 +4,45 @@ package tgo
 #cgo LDFLAGS: -lm
 #include "tg.h"
 #include <stdlib.h>
+#include <stdio.h>
+
+#define MAX_RESPONSE_PER_PIP 8
+
+struct pip_iter_properties_ctx {
+	struct tg_point pip_point;
+	char *properties[MAX_RESPONSE_PER_PIP];
+	uint8_t count;
+};
+
+struct pip_iter_one_ctx {
+	struct tg_point pip_point;
+	struct tg_geom *geom;
+};
+
+bool pip_iter_properties(const struct tg_geom *child, int index, void *udata) {
+	struct pip_iter_properties_ctx *ctx = udata;
+	if (tg_geom_intersects_xy(child, ctx->pip_point.x, ctx->pip_point.y)) {
+		ctx->properties[ctx->count] = (char*)tg_geom_extra_json(child);
+
+		//printf("%d %s\n", index, ctx->properties[index]);
+		ctx->count++;
+		if (ctx->count >= MAX_RESPONSE_PER_PIP) {
+			return false;
+		}
+
+	}
+	return true;
+}
+
+bool pip_iter_one(const struct tg_geom *child, int index, void *udata) {
+	struct pip_iter_one_ctx *ctx = udata;
+	if (tg_geom_intersects_xy(child, ctx->pip_point.x, ctx->pip_point.y)) {
+		ctx->geom = (struct tg_geom *)child;
+		return true;
+	}
+	return true;
+}
+
 */
 import "C"
 
@@ -147,6 +186,27 @@ func (g *Geom) MemSize() int {
 // geometry. Such as the "id" or "properties" fields.
 func (g *Geom) Properties() string {
 	return C.GoString(C.tg_geom_extra_json(g.cg))
+}
+
+// StabOne performs a Point in Polygon query using the point (x,y)
+// and returns the first encountered child geometry
+func (g *Geom) StabOne(x, y float64) *Geom {
+	// creating a point
+	p := C.struct_tg_point{C.double(x), C.double(y)}
+
+	// creating a context for the iterator
+	ctx := C.struct_pip_iter_one_ctx{pip_point: p}
+
+	// calling the C func tg_geom_search
+	// void tg_geom_search(const struct tg_geom *geom, struct tg_rect rect,
+	//	bool (*iter)(const struct tg_geom *geom, int index, void *udata),
+	//	void *udata);
+	C.tg_geom_search(g.cg, C.tg_point_rect(p), (*[0]byte)(C.pip_iter_one), (unsafe.Pointer(&ctx)))
+	if ctx.geom != nil {
+		return &Geom{cg: ctx.geom}
+	}
+
+	return nil
 }
 
 // func (g *Geom) RingSearch() {
