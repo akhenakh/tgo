@@ -19,6 +19,21 @@ func (r *Ring) AsGeom() *Geom {
 	}
 }
 
+func (r *Ring) AsPoly() *Poly {
+	cp := (*C.struct_tg_poly)(unsafe.Pointer(r.cr))
+	return &Poly{
+		cp: cp,
+	}
+}
+
 func (r *Ring) AsText() string {
 	return r.AsGeom().AsText()
+}
+
+func (r *Ring) Area() float64 {
+	return float64(C.tg_ring_area(r.cr))
+}
+
+func (r *Ring) Perimeter() float64 {
+	return float64(C.tg_ring_perimeter(r.cr))
 }

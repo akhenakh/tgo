@@ -72,15 +72,19 @@ const (
 type IndexType uint32
 
 const (
-	None IndexType = iota + 1
-	Natural
-	YStripes
+	None     IndexType = iota + 1 // no indexing available, or disabled
+	Natural                       // indexing with natural ring order, for rings/lines
+	YStripes                      // indexing using segment striping, rings only
 )
 
+// UnmarshalWKT parses geometries from a WKT representation.
+// Using the Natural indexation.
 func UnmarshalWKT(data string) (*Geom, error) {
-	return UnmarshalWKTAndIndex(data, None)
+	return UnmarshalWKTAndIndex(data, Natural)
 }
 
+// UnmarshalWKTAndIndex parses geometries from a WKT representation,
+// and sets the indexation type.
 func UnmarshalWKTAndIndex(data string, idxt IndexType) (*Geom, error) {
 	cd := C.CString(data)
 	defer C.free(unsafe.Pointer(cd))
@@ -97,10 +101,14 @@ func UnmarshalWKTAndIndex(data string, idxt IndexType) (*Geom, error) {
 	return g, nil
 }
 
+// UnmarshalWKB parses geometries from a WKB representation.
+// Using the Natural indexation.
 func UnmarshalWKB(data []byte) (*Geom, error) {
-	return UnmarshalWKBAndIndex(data, None)
+	return UnmarshalWKBAndIndex(data, Natural)
 }
 
+// UnmarshalWKBAndIndex parses geometries from a WKB representation,
+// and sets the indexation type.
 func UnmarshalWKBAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	if len(data) == 0 {
 		return nil, errors.New("empty data")
@@ -121,10 +129,14 @@ func UnmarshalWKBAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	return g, nil
 }
 
+// UnmarshalGeoJSON parses geometries from a GeoJSON representation.
+// Using the Natural indexation.
 func UnmarshalGeoJSON(data []byte) (*Geom, error) {
-	return UnmarshalGeoJSONAndIndex(data, None)
+	return UnmarshalGeoJSONAndIndex(data, Natural)
 }
 
+// UnmarshalGeoJSONAndIndex parses geometries from a GeoJSON representation,
+// and sets the indexation type.
 func UnmarshalGeoJSONAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	if len(data) == 0 {
 		return nil, errors.New("empty data")
@@ -145,6 +157,7 @@ func UnmarshalGeoJSONAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	return g, nil
 }
 
+// Equals returns true if the two geometries are equal
 func Equals(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_equals(g1.cg, g2.cg))
 }
@@ -215,6 +228,7 @@ func (g *Geom) StabOne(x, y float64) *Geom {
 // 	C.tg_ring_free(r)
 // }
 
+// AsPoly returns a Poly of the geometry, returns false if not applicable.
 func (g *Geom) AsPoly() (*Poly, bool) {
 	cp := C.tg_geom_poly(g.cg)
 
@@ -226,6 +240,7 @@ func (g *Geom) AsPoly() (*Poly, bool) {
 	return p, true
 }
 
+// AsMultiPoly returns a MultiPoly of the geometry, returns false if not applicable.
 func (g *Geom) AsMultiPoly() (*MultiPoly, bool) {
 	if g.Type() != MultiPolygon {
 		return nil, false
@@ -253,6 +268,7 @@ func (g *Geom) AsText() string {
 	return C.GoString((*C.char)(cwkt))
 }
 
+// Type returns the geometry type.
 func (g *Geom) Type() GeomType {
 	switch C.tg_geom_typeof(g.cg) {
 	case C.TG_POINT:

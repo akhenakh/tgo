@@ -4802,6 +4802,12 @@ static size_t geom_memsize(const struct tg_geom *geom) {
             for (int i = 0; i < geom->multi->ngeoms; i++) {
                 size += tg_geom_memsize(geom->multi->geoms[i]);
             }
+            if (geom->multi->index) {
+                size += geom->multi->index->memsz;
+            }
+            if (geom->multi->ixgeoms) {
+                size += geom->multi->ngeoms*sizeof(int);
+            }
         }
         break;
     }
@@ -13505,13 +13511,15 @@ struct tg_geom *tg_parse_hex(const char *hex) {
     return tg_parse_hexn_ix(hex, hex?strlen(hex):0, TG_DEFAULT);
 }
 
-static double ring_area(const struct tg_ring *ring) {
+/// Calculate the area of a ring.
+double tg_ring_area(const struct tg_ring *ring) {
     if (tg_ring_empty(ring)) return 0;
     // The ring area has already been calculated by process_points.
     return ring->area;
 }
 
-static double ring_perimeter(const struct tg_ring *ring) {
+/// Calculate the perimeter length of a ring.
+double tg_ring_perimeter(const struct tg_ring *ring) {
     if (tg_ring_empty(ring)) return 0;
     int nsegs = tg_ring_num_segments(ring);
     double perim = 0;
@@ -13532,8 +13540,8 @@ double tg_ring_polsby_popper_score(const struct tg_ring *ring) {
     // and all other shapes will be smaller. Itty bitty scores mean the
     // polygon is really something nuts or has bad data.
     double score = 0.0;
-    double perim = ring_perimeter(ring);
-    double area = ring_area(ring);
+    double perim = tg_ring_perimeter(ring);
+    double area = tg_ring_area(ring);
     if (perim > 0) {
         score = (area * M_PI * 4) / (perim * perim);
     }
@@ -14079,14 +14087,15 @@ static struct tg_geom *geom_copy(const struct tg_geom *geom) {
                 goto fail;
             }
             memset(geom2->multi, 0, sizeof(struct multi));
+            geom2->multi->rect = geom->multi->rect;
             if (geom->multi->geoms) {
                 size_t gsize = sizeof(struct tg_geom*)*geom->multi->ngeoms;
                 geom2->multi->geoms = tg_malloc(gsize);
                 if (!geom2->multi->geoms) {
                     goto fail;
                 }
-                geom2->multi->ngeoms = geom->multi->ngeoms;
                 memset(geom2->multi->geoms, 0, gsize);
+                geom2->multi->ngeoms = geom->multi->ngeoms;
                 for (int i = 0; i < geom->multi->ngeoms; i++) {
                     const struct tg_geom *child = geom->multi->geoms[i];
                     geom2->multi->geoms[i] = tg_geom_copy(child);
@@ -14094,6 +14103,23 @@ static struct tg_geom *geom_copy(const struct tg_geom *geom) {
                         goto fail;
                     }
                 }
+            }
+            if (geom->multi->index) {
+                geom2->multi->index = tg_malloc(geom->multi->index->memsz);
+                if (!geom2->multi->index) {
+                    goto fail;
+                }
+                memcpy(geom2->multi->index, geom->multi->index, 
+                    geom->multi->index->memsz);
+            }
+            if (geom->multi->ixgeoms) {
+                geom2->multi->ixgeoms = tg_malloc(
+                    geom->multi->ngeoms*sizeof(int));
+                if (!geom2->multi->ixgeoms) {
+                    goto fail;
+                }
+                memcpy(geom2->multi->ixgeoms, geom->multi->ixgeoms,
+                    geom->multi->ngeoms*sizeof(int));
             }
         }
         break;
@@ -14238,4 +14264,9 @@ void tg_geom_search(const struct tg_geom *geom, struct tg_rect rect,
         // indexed search
         multi_index_search(multi, rect, 0, 0, iter, udata);
     }
+}
+
+/// Calculate the length of a line.
+double tg_line_length(const struct tg_line *line) {
+    return tg_ring_perimeter((struct tg_ring*)line);
 }
