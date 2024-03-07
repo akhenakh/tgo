@@ -26,6 +26,7 @@ func (r *Ring) AsPoly() *Poly {
 	}
 }
 
+// AsText returns the representation of the ring as WKT.
 func (r *Ring) AsText() string {
 	return r.AsGeom().AsText()
 }

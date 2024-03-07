@@ -4,6 +4,7 @@ tgo
 
 [![GoDoc](https://pkg.go.dev/badge/github.com/akhenakh/tgo)](https://pkg.go.dev/github.com/akhenakh/tgo)
 
+[<img src="img/tgo.jpg">](https://github.com/akhenakh/tgo/)
 
 Go bindings for [tidwall/tg](https://github.com/tidwall/tg) Geometry library for C - Fast point-in-polygon 
 
