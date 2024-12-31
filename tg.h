@@ -82,6 +82,7 @@ struct tg_geom *tg_geom_new_multipoint(const struct tg_point *points, int npoint
 struct tg_geom *tg_geom_new_multilinestring(const struct tg_line *const lines[], int nlines);
 struct tg_geom *tg_geom_new_multipolygon(const struct tg_poly *const polys[], int npolys);
 struct tg_geom *tg_geom_new_geometrycollection(const struct tg_geom *const geoms[], int ngeoms);
+struct tg_geom *tg_geom_new_error(const char *errmsg);
 struct tg_geom *tg_geom_clone(const struct tg_geom *geom);
 struct tg_geom *tg_geom_copy(const struct tg_geom *geom);
 void tg_geom_free(struct tg_geom *geom);
@@ -156,6 +157,8 @@ struct tg_geom *tg_parse_hex(const char *hex);
 struct tg_geom *tg_parse_hexn(const char *hex, size_t len);
 struct tg_geom *tg_parse_hex_ix(const char *hex, enum tg_index ix);
 struct tg_geom *tg_parse_hexn_ix(const char *hex, size_t len, enum tg_index ix);
+struct tg_geom *tg_parse(const void *data, size_t len);
+struct tg_geom *tg_parse_ix(const void *data, size_t len, enum tg_index ix);
 const char *tg_geom_error(const struct tg_geom *geom);
 /// @}
 
