@@ -157,6 +157,33 @@ func UnmarshalGeoJSONAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	return g, nil
 }
 
+// Parse data into a geometry by auto detecting the input type. The input data can be WKB, WKT, Hex, or GeoJSON.
+func Parse(data []byte) (*Geom, error) {
+	return ParseAndIndex(data, Natural)
+}
+
+// Parse data into a geometry by auto detecting the input type. The input data can be WKB, WKT, Hex, or GeoJSON.
+func ParseAndIndex(data []byte, idxt IndexType) (*Geom, error) {
+	if len(data) == 0 {
+		return nil, errors.New("empty data")
+	}
+
+	cdata := C.CBytes(data)
+	defer C.free(cdata)
+
+	cg := C.tg_parse_ix(unsafe.Pointer(cdata), C.size_t(len(data)), C.enum_tg_index(idxt))
+	cerr := C.tg_geom_error(cg)
+	if cerr != nil {
+		return nil, fmt.Errorf("%s", C.GoString(cerr))
+	}
+
+	g := &Geom{cg}
+	runtime.SetFinalizer(g, (*Geom).free)
+
+	return g, nil
+
+}
+
 // Equals returns true if the two geometries are equal
 func Equals(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_equals(g1.cg, g2.cg))

@@ -528,6 +528,56 @@ func TestAsPoly(t *testing.T) {
 	}
 }
 
+func TestParse(t *testing.T) {
+
+	tests := []struct {
+		name   string
+		data   []byte
+		asText string
+
+		wantErr bool
+	}{
+		{
+			"loading WKB",
+			[]byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 248, 63, 0, 0, 0, 0, 0, 0, 4, 64},
+			"POINT(1.5 2.5)",
+			false,
+		},
+		{
+			"loading WKT",
+			[]byte("POINT(1.5 2.5)"),
+			"POINT(1.5 2.5)",
+			false,
+		},
+		{
+			"loading GeoJSON",
+			[]byte(`{ "coordinates": [1.5, 2.5 ], "type": "Point"}`),
+			"POINT(1.5 2.5)",
+			false,
+		},
+		{
+			"loading garbage",
+			[]byte(`NOP`),
+			"",
+			true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g, err := Parse(tt.data)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+
+			require.Equal(t, tt.asText, g.AsText())
+		})
+	}
+}
+
 func geomFromWKT(t testing.TB, wkt string) *Geom {
 	t.Helper()
 	geom, err := UnmarshalWKT(wkt)
