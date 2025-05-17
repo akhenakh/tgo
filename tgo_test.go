@@ -529,7 +529,6 @@ func TestAsPoly(t *testing.T) {
 }
 
 func TestParse(t *testing.T) {
-
 	tests := []struct {
 		name   string
 		data   []byte

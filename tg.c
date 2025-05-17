@@ -13,7 +13,9 @@
 #include <string.h>
 #include <assert.h>
 #include <ctype.h>
-#include "tg.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
 
 /******************************************************************************
 
@@ -30,6 +32,493 @@ the deps directory and then run deps/embed.sh to replace out its code in
 this file.
 
 *******************************************************************************/
+
+#ifdef TG_STATIC
+#define TG_EXTERN static
+#endif
+
+#ifndef TG_EXTERN
+#define TG_EXTERN
+#endif
+
+struct tg_point {
+    double x;
+    double y;
+};
+
+struct tg_segment {
+    struct tg_point a;
+    struct tg_point b;
+};
+
+struct tg_rect {
+    struct tg_point min;
+    struct tg_point max;
+};
+
+struct tg_line;  ///< Find the description in the tg.c file.
+struct tg_ring;  ///< Find the description in the tg.c file.
+struct tg_poly;  ///< Find the description in the tg.c file.
+struct tg_geom;  ///< Find the description in the tg.c file.
+
+enum tg_geom_type {
+    TG_POINT              = 1, ///< Point
+    TG_LINESTRING         = 2, ///< LineString
+    TG_POLYGON            = 3, ///< Polygon
+    TG_MULTIPOINT         = 4, ///< MultiPoint, collection of points
+    TG_MULTILINESTRING    = 5, ///< MultiLineString, collection of linestrings
+    TG_MULTIPOLYGON       = 6, ///< MultiPolygon, collection of polygons
+    TG_GEOMETRYCOLLECTION = 7, ///< GeometryCollection, collection of geometries
+};
+
+enum tg_index { 
+    TG_DEFAULT,  ///< default is TG_NATURAL or tg_env_set_default_index().
+    TG_NONE,     ///< no indexing available, or disabled.
+    TG_NATURAL,  ///< indexing with natural ring order, for rings/lines
+    TG_YSTRIPES, ///< indexing using segment striping, rings only
+};
+
+enum tg_raycast_result {
+    TG_OUT,  // point is above, below, or to the right of the segment
+    TG_IN,   // point is to the left (and inside the vertical bounds)
+    TG_ON,   // point is on the segment
+};
+
+// Public methods. These should also be in the tg.h file
+TG_EXTERN struct tg_geom *tg_geom_new_point(struct tg_point point);
+TG_EXTERN struct tg_geom *tg_geom_new_linestring(const struct tg_line *line);
+TG_EXTERN struct tg_geom *tg_geom_new_polygon(const struct tg_poly *poly);
+TG_EXTERN struct tg_geom *tg_geom_new_multipoint(const struct tg_point *points,
+    int npoints);
+TG_EXTERN struct tg_geom *tg_geom_new_multilinestring(
+    const struct tg_line *const lines[], int nlines);
+TG_EXTERN struct tg_geom *tg_geom_new_multipolygon(
+    const struct tg_poly *const polys[], int npolys);
+TG_EXTERN struct tg_geom *tg_geom_new_geometrycollection(
+    const struct tg_geom *const geoms[], int ngeoms);
+TG_EXTERN struct tg_geom *tg_geom_new_error(const char *errmsg);
+TG_EXTERN struct tg_geom *tg_geom_clone(const struct tg_geom *geom);
+TG_EXTERN struct tg_geom *tg_geom_copy(const struct tg_geom *geom);
+TG_EXTERN void tg_geom_free(struct tg_geom *geom);
+TG_EXTERN enum tg_geom_type tg_geom_typeof(const struct tg_geom *geom);
+TG_EXTERN const char *tg_geom_type_string(enum tg_geom_type type);
+TG_EXTERN struct tg_rect tg_geom_rect(const struct tg_geom *geom);
+TG_EXTERN bool tg_geom_is_feature(const struct tg_geom *geom);
+TG_EXTERN bool tg_geom_is_featurecollection(const struct tg_geom *geom);
+TG_EXTERN struct tg_point tg_geom_point(const struct tg_geom *geom);
+TG_EXTERN const struct tg_line *tg_geom_line(const struct tg_geom *geom);
+TG_EXTERN const struct tg_poly *tg_geom_poly(const struct tg_geom *geom);
+TG_EXTERN int tg_geom_num_points(const struct tg_geom *geom);
+TG_EXTERN struct tg_point tg_geom_point_at(const struct tg_geom *geom,
+    int index);
+TG_EXTERN int tg_geom_num_lines(const struct tg_geom *geom);
+TG_EXTERN const struct tg_line *tg_geom_line_at(const struct tg_geom *geom,
+    int index);
+TG_EXTERN int tg_geom_num_polys(const struct tg_geom *geom);
+TG_EXTERN const struct tg_poly *tg_geom_poly_at(const struct tg_geom *geom,
+    int index);
+TG_EXTERN int tg_geom_num_geometries(const struct tg_geom *geom);
+TG_EXTERN const struct tg_geom *tg_geom_geometry_at(const struct tg_geom *geom,
+    int index);
+TG_EXTERN const char *tg_geom_extra_json(const struct tg_geom *geom);
+TG_EXTERN bool tg_geom_is_empty(const struct tg_geom *geom);
+TG_EXTERN int tg_geom_dims(const struct tg_geom *geom);
+TG_EXTERN bool tg_geom_has_z(const struct tg_geom *geom);
+TG_EXTERN bool tg_geom_has_m(const struct tg_geom *geom);
+TG_EXTERN double tg_geom_z(const struct tg_geom *geom);
+TG_EXTERN double tg_geom_m(const struct tg_geom *geom);
+TG_EXTERN const double *tg_geom_extra_coords(const struct tg_geom *geom);
+TG_EXTERN int tg_geom_num_extra_coords(const struct tg_geom *geom);
+TG_EXTERN size_t tg_geom_memsize(const struct tg_geom *geom);
+TG_EXTERN void tg_geom_search(const struct tg_geom *geom, struct tg_rect rect,
+    bool (*iter)(const struct tg_geom *geom, int index, void *udata),
+    void *udata);
+TG_EXTERN int tg_geom_fullrect(const struct tg_geom *geom, double min[4],
+    double max[4]);
+TG_EXTERN bool tg_geom_equals(const struct tg_geom *a, const struct tg_geom *b);
+TG_EXTERN bool tg_geom_intersects(const struct tg_geom *a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_geom_disjoint(const struct tg_geom *a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_geom_contains(const struct tg_geom *a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_geom_within(const struct tg_geom *a, const struct tg_geom *b);
+TG_EXTERN bool tg_geom_covers(const struct tg_geom *a, const struct tg_geom *b);
+TG_EXTERN bool tg_geom_coveredby(const struct tg_geom *a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_geom_touches(const struct tg_geom *a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_geom_intersects_rect(const struct tg_geom *a,
+    struct tg_rect b);
+TG_EXTERN bool tg_geom_intersects_xy(const struct tg_geom *a, double x,
+    double y);
+TG_EXTERN struct tg_geom *tg_parse_geojson(const char *geojson);
+TG_EXTERN struct tg_geom *tg_parse_geojsonn(const char *geojson, size_t len);
+TG_EXTERN struct tg_geom *tg_parse_geojson_ix(const char *geojson,
+    enum tg_index ix);
+TG_EXTERN struct tg_geom *tg_parse_geojsonn_ix(const char *geojson, size_t len,
+    enum tg_index ix);
+TG_EXTERN struct tg_geom *tg_parse_wkt(const char *wkt);
+TG_EXTERN struct tg_geom *tg_parse_wktn(const char *wkt, size_t len);
+TG_EXTERN struct tg_geom *tg_parse_wkt_ix(const char *wkt, enum tg_index ix);
+TG_EXTERN struct tg_geom *tg_parse_wktn_ix(const char *wkt, size_t len,
+    enum tg_index ix);
+TG_EXTERN struct tg_geom *tg_parse_wkb(const uint8_t *wkb, size_t len);
+TG_EXTERN struct tg_geom *tg_parse_wkb_ix(const uint8_t *wkb, size_t len,
+    enum tg_index ix);
+TG_EXTERN struct tg_geom *tg_parse_hex(const char *hex);
+TG_EXTERN struct tg_geom *tg_parse_hexn(const char *hex, size_t len);
+TG_EXTERN struct tg_geom *tg_parse_hex_ix(const char *hex, enum tg_index ix);
+TG_EXTERN struct tg_geom *tg_parse_hexn_ix(const char *hex, size_t len,
+    enum tg_index ix);
+TG_EXTERN struct tg_geom *tg_parse_geobin(const uint8_t *geobin, size_t len);
+TG_EXTERN struct tg_geom *tg_parse_geobin_ix(const uint8_t *geobin, size_t len,
+    enum tg_index ix);
+TG_EXTERN struct tg_geom *tg_parse(const void *data, size_t len);
+TG_EXTERN struct tg_geom *tg_parse_ix(const void *data, size_t len,
+    enum tg_index ix);
+TG_EXTERN const char *tg_geom_error(const struct tg_geom *geom);
+TG_EXTERN int tg_geobin_fullrect(const uint8_t *geobin, size_t len,
+    double min[4], double max[4]);
+TG_EXTERN struct tg_rect tg_geobin_rect(const uint8_t *geobin, size_t len);
+TG_EXTERN struct tg_point tg_geobin_point(const uint8_t *geobin, size_t len);
+TG_EXTERN size_t tg_geom_geojson(const struct tg_geom *geom, char *dst, 
+    size_t n);
+TG_EXTERN size_t tg_geom_wkt(const struct tg_geom *geom, char *dst, size_t n);
+TG_EXTERN size_t tg_geom_wkb(const struct tg_geom *geom, uint8_t *dst,
+    size_t n);
+TG_EXTERN size_t tg_geom_hex(const struct tg_geom *geom, char *dst, size_t n);
+TG_EXTERN size_t tg_geom_geobin(const struct tg_geom *geom, uint8_t *dst,
+    size_t n);
+TG_EXTERN struct tg_geom *tg_geom_new_point_z(struct tg_point point, double z);
+TG_EXTERN struct tg_geom *tg_geom_new_point_m(struct tg_point point, double m);
+TG_EXTERN struct tg_geom *tg_geom_new_point_zm(struct tg_point point, double z,
+    double m);
+TG_EXTERN struct tg_geom *tg_geom_new_point_empty(void);
+TG_EXTERN struct tg_geom *tg_geom_new_linestring_z(const struct tg_line *line,
+    const double *extra_coords, int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_linestring_m(const struct tg_line *line,
+    const double *extra_coords, int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_linestring_zm(const struct tg_line *line,
+    const double *extra_coords, int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_linestring_empty(void);
+TG_EXTERN struct tg_geom *tg_geom_new_polygon_z(const struct tg_poly *poly,
+    const double *extra_coords, int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_polygon_m(const struct tg_poly *poly,
+    const double *extra_coords, int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_polygon_zm(const struct tg_poly *poly,
+    const double *extra_coords, int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_polygon_empty(void);
+TG_EXTERN struct tg_geom *tg_geom_new_multipoint_z(
+    const struct tg_point *points, int npoints, const double *extra_coords,
+    int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_multipoint_m(
+    const struct tg_point *points, int npoints, const double *extra_coords,
+    int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_multipoint_zm(
+    const struct tg_point *points, int npoints, const double *extra_coords,
+    int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_multipoint_empty(void);
+TG_EXTERN struct tg_geom *tg_geom_new_multilinestring_z(
+    const struct tg_line *const lines[], int nlines, const double *extra_coords,
+    int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_multilinestring_m(
+    const struct tg_line *const lines[], int nlines, const double *extra_coords,
+    int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_multilinestring_zm(
+    const struct tg_line *const lines[], int nlines, const double *extra_coords,
+    int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_multilinestring_empty(void);
+TG_EXTERN struct tg_geom *tg_geom_new_multipolygon_z(
+    const struct tg_poly *const polys[], int npolys, const double *extra_coords,
+    int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_multipolygon_m(
+    const struct tg_poly *const polys[], int npolys, const double *extra_coords,
+    int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_multipolygon_zm(
+    const struct tg_poly *const polys[], int npolys, const double *extra_coords,
+    int ncoords);
+TG_EXTERN struct tg_geom *tg_geom_new_multipolygon_empty(void);
+TG_EXTERN struct tg_geom *tg_geom_new_geometrycollection_empty(void);
+TG_EXTERN struct tg_rect tg_point_rect(struct tg_point point);
+TG_EXTERN bool tg_point_intersects_rect(struct tg_point a, struct tg_rect b);
+TG_EXTERN struct tg_rect tg_segment_rect(struct tg_segment s);
+TG_EXTERN bool tg_segment_intersects_segment(struct tg_segment a,
+    struct tg_segment b);
+TG_EXTERN struct tg_rect tg_rect_expand(struct tg_rect rect,
+    struct tg_rect other);
+TG_EXTERN struct tg_rect tg_rect_expand_point(struct tg_rect rect,
+    struct tg_point point);
+TG_EXTERN struct tg_point tg_rect_center(struct tg_rect rect);
+TG_EXTERN bool tg_rect_intersects_rect(struct tg_rect a, struct tg_rect b);
+TG_EXTERN bool tg_rect_intersects_point(struct tg_rect a, struct tg_point b);
+TG_EXTERN struct tg_ring *tg_ring_new(const struct tg_point *points,
+    int npoints);
+TG_EXTERN struct tg_ring *tg_ring_new_ix(const struct tg_point *points,
+    int npoints, enum tg_index ix);
+TG_EXTERN void tg_ring_free(struct tg_ring *ring);
+TG_EXTERN struct tg_ring *tg_ring_clone(const struct tg_ring *ring);
+TG_EXTERN struct tg_ring *tg_ring_copy(const struct tg_ring *ring);
+TG_EXTERN size_t tg_ring_memsize(const struct tg_ring *ring);
+TG_EXTERN struct tg_rect tg_ring_rect(const struct tg_ring *ring);
+TG_EXTERN int tg_ring_num_points(const struct tg_ring *ring);
+TG_EXTERN struct tg_point tg_ring_point_at(const struct tg_ring *ring,
+    int index);
+TG_EXTERN const struct tg_point *tg_ring_points(const struct tg_ring *ring);
+TG_EXTERN int tg_ring_num_segments(const struct tg_ring *ring);
+TG_EXTERN struct tg_segment tg_ring_segment_at(const struct tg_ring *ring,
+    int index);
+TG_EXTERN bool tg_ring_convex(const struct tg_ring *ring);
+TG_EXTERN bool tg_ring_clockwise(const struct tg_ring *ring);
+TG_EXTERN int tg_ring_index_spread(const struct tg_ring *ring);
+TG_EXTERN int tg_ring_index_num_levels(const struct tg_ring *ring);
+TG_EXTERN int tg_ring_index_level_num_rects(const struct tg_ring *ring,
+    int levelidx);
+TG_EXTERN struct tg_rect tg_ring_index_level_rect(const struct tg_ring *ring,
+    int levelidx, int rectidx);
+TG_EXTERN bool tg_ring_nearest_segment(const struct tg_ring *ring,
+    double (*rect_dist)(struct tg_rect rect, int *more, void *udata), 
+    double (*seg_dist)(struct tg_segment seg, int *more, void *udata), 
+    bool (*iter)(struct tg_segment seg, double dist, int index, void *udata),
+    void *udata);
+TG_EXTERN void tg_ring_line_search(const struct tg_ring *a,
+    const struct tg_line *b, bool (*iter)(struct tg_segment aseg, int aidx,
+    struct tg_segment bseg, int bidx, void *udata), void *udata);
+TG_EXTERN void tg_ring_ring_search(const struct tg_ring *a,
+    const struct tg_ring *b, bool (*iter)(struct tg_segment aseg, int aidx,
+    struct tg_segment bseg, int bidx, void *udata), void *udata);
+TG_EXTERN double tg_ring_area(const struct tg_ring *ring);
+TG_EXTERN double tg_ring_perimeter(const struct tg_ring *ring);
+TG_EXTERN struct tg_line *tg_line_new(const struct tg_point *points,
+    int npoints);
+TG_EXTERN struct tg_line *tg_line_new_ix(const struct tg_point *points,
+    int npoints, enum tg_index ix);
+TG_EXTERN void tg_line_free(struct tg_line *line);
+TG_EXTERN struct tg_line *tg_line_clone(const struct tg_line *line);
+TG_EXTERN struct tg_line *tg_line_copy(const struct tg_line *line);
+TG_EXTERN size_t tg_line_memsize(const struct tg_line *line);
+TG_EXTERN struct tg_rect tg_line_rect(const struct tg_line *line);
+TG_EXTERN int tg_line_num_points(const struct tg_line *line);
+TG_EXTERN const struct tg_point *tg_line_points(const struct tg_line *line);
+TG_EXTERN struct tg_point tg_line_point_at(const struct tg_line *line,
+    int index);
+TG_EXTERN int tg_line_num_segments(const struct tg_line *line);
+TG_EXTERN struct tg_segment tg_line_segment_at(const struct tg_line *line,
+    int index);
+TG_EXTERN bool tg_line_clockwise(const struct tg_line *line);
+TG_EXTERN int tg_line_index_spread(const struct tg_line *line);
+TG_EXTERN int tg_line_index_num_levels(const struct tg_line *line);
+TG_EXTERN int tg_line_index_level_num_rects(const struct tg_line *line,
+    int levelidx);
+TG_EXTERN struct tg_rect tg_line_index_level_rect(const struct tg_line *line,
+    int levelidx, int rectidx);
+TG_EXTERN bool tg_line_nearest_segment(const struct tg_line *line,
+    double (*rect_dist)(struct tg_rect rect, int *more, void *udata),
+    double (*seg_dist)(struct tg_segment seg, int *more, void *udata),
+    bool (*iter)(struct tg_segment seg, double dist, int index, void *udata), 
+    void *udata);
+TG_EXTERN void tg_line_line_search(const struct tg_line *a,
+    const struct tg_line *b, bool (*iter)(struct tg_segment aseg, int aidx,
+    struct tg_segment bseg, int bidx, void *udata), void *udata);
+TG_EXTERN double tg_line_length(const struct tg_line *line);
+TG_EXTERN struct tg_poly *tg_poly_new(const struct tg_ring *exterior,
+    const struct tg_ring *const holes[], int nholes);
+TG_EXTERN void tg_poly_free(struct tg_poly *poly);
+TG_EXTERN struct tg_poly *tg_poly_clone(const struct tg_poly *poly);
+TG_EXTERN struct tg_poly *tg_poly_copy(const struct tg_poly *poly);
+TG_EXTERN size_t tg_poly_memsize(const struct tg_poly *poly);
+TG_EXTERN const struct tg_ring *tg_poly_exterior(const struct tg_poly *poly);
+TG_EXTERN int tg_poly_num_holes(const struct tg_poly *poly);
+TG_EXTERN const struct tg_ring *tg_poly_hole_at(const struct tg_poly *poly,
+    int index);
+TG_EXTERN struct tg_rect tg_poly_rect(const struct tg_poly *poly);
+TG_EXTERN bool tg_poly_clockwise(const struct tg_poly *poly);
+TG_EXTERN void tg_env_set_allocator(void *(*malloc)(size_t),
+    void *(*realloc)(void*, size_t), void (*free)(void*));
+TG_EXTERN void tg_env_set_index(enum tg_index ix);
+TG_EXTERN void tg_env_set_index_spread(int spread);
+TG_EXTERN void tg_env_set_print_fixed_floats(bool print);
+
+// Private methods. Not listed in the tg.h file.
+TG_EXTERN bool tg_ring_empty(const struct tg_ring *ring);
+TG_EXTERN bool tg_line_empty(const struct tg_line *line);
+TG_EXTERN bool tg_poly_empty(const struct tg_poly *poly);
+TG_EXTERN void tg_rect_search(struct tg_rect rect, struct tg_rect target,
+    bool(*iter)(struct tg_segment seg, int index, void *udata), void *udata);
+TG_EXTERN void tg_ring_search(const struct tg_ring *ring, struct tg_rect rect,
+    bool(*iter)(struct tg_segment seg, int index, void *udata), void *udata);
+TG_EXTERN void tg_line_search(const struct tg_line *ring, struct tg_rect rect,
+    bool(*iter)(struct tg_segment seg, int index, void *udata), void *udata);
+TG_EXTERN void tg_geom_foreach(const struct tg_geom *geom, bool(*iter)(
+        const struct tg_geom *geom, void *udata), void *udata);
+TG_EXTERN double tg_ring_polsby_popper_score(const struct tg_ring *ring);
+TG_EXTERN double tg_line_polsby_popper_score(const struct tg_line *line);
+TG_EXTERN int tg_rect_num_points(struct tg_rect rect);
+TG_EXTERN struct tg_point tg_rect_point_at(struct tg_rect rect, int index);
+TG_EXTERN int tg_rect_num_segments(struct tg_rect rect);
+TG_EXTERN struct tg_segment tg_rect_segment_at(struct tg_rect rect, int index);
+TG_EXTERN int tg_geom_de9im_dims(const struct tg_geom *geom);
+TG_EXTERN bool tg_point_covers_point(struct tg_point a, struct tg_point b);
+TG_EXTERN bool tg_point_covers_rect(struct tg_point a, struct tg_rect b);
+TG_EXTERN bool tg_point_covers_line(struct tg_point a, const struct tg_line *b);
+TG_EXTERN bool tg_point_covers_poly(struct tg_point a, const struct tg_poly *b);
+TG_EXTERN bool tg_geom_covers_point(const struct tg_geom *a, struct tg_point b);
+TG_EXTERN bool tg_geom_covers_xy(const struct tg_geom *a, double x, double y);
+TG_EXTERN bool tg_segment_covers_segment(struct tg_segment a,
+    struct tg_segment b);
+TG_EXTERN bool tg_segment_covers_point(struct tg_segment a, struct tg_point b);
+TG_EXTERN bool tg_segment_covers_rect(struct tg_segment a, struct tg_rect b);
+TG_EXTERN bool tg_rect_covers_point(struct tg_rect a, struct tg_point b);
+TG_EXTERN bool tg_rect_covers_xy(struct tg_rect a, double x, double y);
+TG_EXTERN bool tg_rect_covers_rect(struct tg_rect a, struct tg_rect b);
+TG_EXTERN bool tg_rect_covers_line(struct tg_rect a, const struct tg_line *b);
+TG_EXTERN bool tg_rect_covers_poly(struct tg_rect a, const struct tg_poly *b);
+TG_EXTERN bool tg_line_covers_point(const struct tg_line *a, struct tg_point b);
+TG_EXTERN bool tg_line_covers_rect(const struct tg_line *a, struct tg_rect b);
+TG_EXTERN bool tg_line_covers_line(const struct tg_line *a,
+    const struct tg_line *b);
+TG_EXTERN bool tg_line_covers_poly(const struct tg_line *a,
+    const struct tg_poly *b);
+TG_EXTERN bool tg_line_intersects_point(const struct tg_line *a,
+    struct tg_point b);
+TG_EXTERN bool tg_line_intersects_rect(const struct tg_line *a,
+    struct tg_rect b);
+TG_EXTERN bool tg_line_intersects_line(const struct tg_line *a,
+    const struct tg_line *b);
+TG_EXTERN bool tg_line_intersects_poly(const struct tg_line *a,
+    const struct tg_poly *b);
+TG_EXTERN bool tg_point_intersects_point(struct tg_point a, struct tg_point b);
+TG_EXTERN bool tg_point_intersects_rect(struct tg_point a, struct tg_rect b);
+TG_EXTERN bool tg_point_intersects_line(struct tg_point a,
+    const struct tg_line *b);
+TG_EXTERN bool tg_point_intersects_poly(struct tg_point a,
+    const struct tg_poly *b);
+TG_EXTERN bool tg_rect_intersects_rect(struct tg_rect a, struct tg_rect b);
+TG_EXTERN bool tg_rect_intersects_line(struct tg_rect a,
+    const struct tg_line *b);
+TG_EXTERN bool tg_rect_intersects_poly(struct tg_rect a,
+    const struct tg_poly *b);
+TG_EXTERN bool tg_segment_intersects_segment(struct tg_segment a,
+    struct tg_segment b);
+TG_EXTERN bool tg_poly_covers_xy(const struct tg_poly *a, double x, double y);
+TG_EXTERN bool tg_poly_touches_line(const struct tg_poly *a,
+    const struct tg_line *b);
+TG_EXTERN bool tg_poly_covers_point(const struct tg_poly *a, struct tg_point b);
+TG_EXTERN bool tg_poly_covers_rect(const struct tg_poly *a, struct tg_rect b);
+TG_EXTERN bool tg_poly_covers_line(const struct tg_poly *a,
+    const struct tg_line *b);
+TG_EXTERN bool tg_poly_covers_poly(const struct tg_poly *a,
+    const struct tg_poly *b);
+TG_EXTERN bool tg_poly_intersects_point(const struct tg_poly *a,
+    struct tg_point b);
+TG_EXTERN bool tg_poly_intersects_rect(const struct tg_poly *a,
+    struct tg_rect b);
+TG_EXTERN bool tg_poly_intersects_line(const struct tg_poly *a,
+    const struct tg_line *b);
+TG_EXTERN bool tg_poly_intersects_poly(const struct tg_poly *a,
+    const struct tg_poly *b);
+TG_EXTERN bool tg_geom_intersects_point(const struct tg_geom *a,
+    struct tg_point b);
+TG_EXTERN struct tg_segment tg_segment_move(struct tg_segment seg,
+    double delta_x, double delta_y);
+TG_EXTERN struct tg_ring *tg_ring_move(const struct tg_ring *ring,
+    double delta_x, double delta_y);
+TG_EXTERN bool tg_ring_intersects_segment(const struct tg_ring *ring,
+    struct tg_segment seg, bool allow_on_edge);
+TG_EXTERN enum tg_raycast_result tg_raycast(struct tg_segment seg,
+    struct tg_point p);
+TG_EXTERN void *tg_realloc(void *ptr, size_t nbytes);
+TG_EXTERN void *tg_malloc(size_t nbytes);
+TG_EXTERN void tg_free(void *ptr);
+TG_EXTERN bool tg_point_touches_poly(struct tg_point point,
+    const struct tg_poly *poly);
+TG_EXTERN bool tg_poly_contains_geom(struct tg_poly *a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_poly_contains_line(const struct tg_poly *a,
+    const struct tg_line *b);
+TG_EXTERN bool tg_poly_contains_point(const struct tg_poly *poly,
+    struct tg_point point);
+TG_EXTERN bool tg_poly_contains_poly(const struct tg_poly *a,
+    const struct tg_poly *b);
+TG_EXTERN struct tg_poly *tg_poly_move(const struct tg_poly *poly,
+    double delta_x, double delta_y);
+TG_EXTERN bool tg_poly_touches_poly(const struct tg_poly *a,
+    const struct tg_poly *b);
+TG_EXTERN double tg_rect_distance_rect(struct tg_rect a, struct tg_rect b);
+TG_EXTERN struct tg_rect tg_rect_move(struct tg_rect rect, double delta_x,
+    double delta_y);
+TG_EXTERN bool tg_ring_contains_line(const struct tg_ring *a,
+    const struct tg_line *b, bool allow_on_edge, bool respect_boundaries);
+TG_EXTERN struct ring_result tg_ring_contains_point(const struct tg_ring *ring,
+    struct tg_point point, bool allow_on_edge);
+TG_EXTERN double tg_point_distance_point(struct tg_point a, struct tg_point b);
+TG_EXTERN double tg_point_distance_rect(struct tg_point p, struct tg_rect r);
+TG_EXTERN double tg_point_distance_segment(struct tg_point p,
+    struct tg_segment s);
+TG_EXTERN uint32_t tg_point_hilbert(struct tg_point point, struct tg_rect rect);
+TG_EXTERN struct tg_point tg_point_move(struct tg_point point, double delta_x,
+    double delta_y);
+TG_EXTERN bool tg_point_touches_geom(struct tg_point a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_point_touches_line(struct tg_point point,
+    const struct tg_line *line);
+TG_EXTERN struct tg_line *tg_line_move(const struct tg_line *line,
+    double delta_x, double delta_y);
+TG_EXTERN bool tg_line_touches_geom(struct tg_line *a, const struct tg_geom *b);
+TG_EXTERN bool tg_line_touches_line(const struct tg_line *a,
+    const struct tg_line *b);
+TG_EXTERN bool tg_line_touches_point(const struct tg_line *line,
+    struct tg_point point);
+TG_EXTERN bool tg_line_touches_poly(const struct tg_line *a,
+    const struct tg_poly *b);
+TG_EXTERN bool tg_point_contains_geom(struct tg_point a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_point_contains_line(struct tg_point point,
+    const struct tg_line *line);
+TG_EXTERN void tg_geom_setnoheap(struct tg_geom *geom);
+TG_EXTERN enum tg_index tg_index_extract_spread(enum tg_index ix, int *spread);
+TG_EXTERN enum tg_index tg_index_with_spread(enum tg_index ix, int spread);
+TG_EXTERN bool tg_line_contains_geom(struct tg_line *a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_line_contains_line(const struct tg_line *line,
+    const struct tg_line *other);
+TG_EXTERN bool tg_line_contains_point(const struct tg_line *line,
+    struct tg_point point);
+TG_EXTERN bool tg_line_contains_poly(const struct tg_line *line,
+    const struct tg_poly *poly);
+TG_EXTERN bool tg_point_contains_point(struct tg_point point,
+    struct tg_point other);
+TG_EXTERN int tg_geom_multi_index_spread(const struct tg_geom *geom);
+TG_EXTERN bool tg_geom_overlaps(const struct tg_geom *a,
+    const struct tg_geom *b);
+TG_EXTERN bool tg_point_contains_poly(struct tg_point point,
+    const struct tg_poly *poly);
+TG_EXTERN bool tg_point_touches_point(struct tg_point a, struct tg_point b);
+TG_EXTERN bool tg_poly_touches_geom(struct tg_poly *a, const struct tg_geom *b);
+TG_EXTERN bool tg_poly_touches_point(const struct tg_poly *poly,
+    struct tg_point point);
+TG_EXTERN size_t tg_aligned_size(size_t size);
+TG_EXTERN struct tg_ring *tg_circle_new_ix(struct tg_point center,
+    double radius, int steps, enum tg_index ix);
+TG_EXTERN enum tg_index tg_env_get_default_index(void);
+TG_EXTERN int tg_env_get_index_spread(void);
+TG_EXTERN bool tg_geom_crosses(const struct tg_geom *a,
+    const struct tg_geom *b);
+TG_EXTERN int tg_geom_multi_index_level_num_rects(const struct tg_geom *geom,
+    int levelidx);
+TG_EXTERN struct tg_rect tg_geom_multi_index_level_rect(
+    const struct tg_geom *geom, int levelidx, int rectidx);
+TG_EXTERN struct tg_ring *tg_circle_new(struct tg_point center, double radius,
+    int steps);
+TG_EXTERN int tg_geom_multi_index_num_levels(const struct tg_geom *geom);
+TG_EXTERN bool tg_ring_contains_ring(const struct tg_ring *a,
+    const struct tg_ring *b, bool allow_on_edge);
+TG_EXTERN bool tg_ring_contains_segment(const struct tg_ring *ring,
+    struct tg_segment seg, bool allow_on_edge);
+TG_EXTERN bool tg_ring_intersects_line(const struct tg_ring *ring,
+    const struct tg_line *line, bool allow_on_edge);
+TG_EXTERN bool tg_ring_intersects_ring(const struct tg_ring *ring,
+    const struct tg_ring *other, bool allow_on_edge);
 
 enum base {
     BASE_POINT = 1, // tg_point
@@ -50,37 +539,45 @@ enum flags {
     IS_UNLOCATED   = 1<<7,  // GeoJSON. 'Feature' with 'geometry'=null
 };
 
-// Reference counting in TG defaults to zero. This means that a zero value for
-// an object with an rc_t field holds a single reference. Only when the rc_t
-// falls below zero will the owning object be freed.
-//
-// rc_add adds a new reference
-// rc_sub removes a reference. Returns false if the owning object can be freed.
-//
 // Optionally use non-atomic reference counting when TG_NOATOMICS is defined.
 #ifdef TG_NOATOMICS
+
 typedef int rc_t;
-static bool rc_sub(rc_t *rc) {
-    int fetch = *rc;
-    (*rc)--;
-    return fetch > 0;
+static void rc_init(rc_t *rc) {
+    *rc = 0;
 }
-static void rc_add(rc_t *rc) {
-    (*rc)++;
+static void rc_retain(rc_t *rc) {
+    *rc++;
 }
+static bool rc_release(rc_t *rc) {
+    *rc--;
+    return *rc == 1;
+}
+
 #else
+
 #include <stdatomic.h>
+
+/*
+The relaxed/release/acquire pattern is based on:
+http://boost.org/doc/libs/1_87_0/libs/atomic/doc/html/atomic/usage_examples.html
+*/
+
 typedef atomic_int rc_t;
-static bool rc_sub(rc_t *rc) {
-    if (atomic_fetch_sub_explicit(rc, 1, __ATOMIC_RELEASE) > 0) {
-        return true;
-    }
-    atomic_thread_fence(__ATOMIC_ACQUIRE);
-    return false;
+static void rc_init(rc_t *rc) {
+    atomic_init(rc, 0);
 }
-static void rc_add(rc_t *rc) {
+static void rc_retain(rc_t *rc) {
     atomic_fetch_add_explicit(rc, 1, __ATOMIC_RELAXED);
 }
+static bool rc_release(rc_t *rc) {
+    if (atomic_fetch_sub_explicit(rc, 1, __ATOMIC_RELEASE) == 1) {
+        atomic_thread_fence(__ATOMIC_ACQUIRE);
+        return true;
+    }
+    return false;
+}
+
 #endif
 
 struct head { 
@@ -255,71 +752,6 @@ struct boxed_point {
     exit(1); \
 }
 
-// private methods
-bool tg_ring_empty(const struct tg_ring *ring);
-bool tg_line_empty(const struct tg_line *line);
-bool tg_poly_empty(const struct tg_poly *poly);
-void tg_rect_search(struct tg_rect rect, struct tg_rect target, 
-    bool(*iter)(struct tg_segment seg, int index, void *udata),
-    void *udata);
-void tg_ring_search(const struct tg_ring *ring, struct tg_rect rect, 
-    bool(*iter)(struct tg_segment seg, int index, void *udata), 
-    void *udata);
-void tg_line_search(const struct tg_line *ring, struct tg_rect rect, 
-    bool(*iter)(struct tg_segment seg, int index, void *udata), 
-    void *udata);
-void tg_geom_foreach(const struct tg_geom *geom, 
-    bool(*iter)(const struct tg_geom *geom, void *udata), void *udata);
-double tg_ring_polsby_popper_score(const struct tg_ring *ring);
-double tg_line_polsby_popper_score(const struct tg_line *line);
-int tg_rect_num_points(struct tg_rect rect);
-struct tg_point tg_rect_point_at(struct tg_rect rect, int index);
-int tg_rect_num_segments(struct tg_rect rect);
-struct tg_segment tg_rect_segment_at(struct tg_rect rect, int index);
-int tg_geom_de9im_dims(const struct tg_geom *geom);
-bool tg_point_covers_point(struct tg_point a, struct tg_point b);
-bool tg_point_covers_rect(struct tg_point a, struct tg_rect b);
-bool tg_point_covers_line(struct tg_point a, const struct tg_line *b);
-bool tg_point_covers_poly(struct tg_point a, const struct tg_poly *b);
-bool tg_geom_covers_point(const struct tg_geom *a, struct tg_point b);
-bool tg_geom_covers_xy(const struct tg_geom *a, double x, double y);
-bool tg_segment_covers_segment(struct tg_segment a, struct tg_segment b);
-bool tg_segment_covers_point(struct tg_segment a, struct tg_point b);
-bool tg_segment_covers_rect(struct tg_segment a, struct tg_rect b);
-bool tg_rect_covers_point(struct tg_rect a, struct tg_point b);
-bool tg_rect_covers_xy(struct tg_rect a, double x, double y);
-bool tg_rect_covers_rect(struct tg_rect a, struct tg_rect b);
-bool tg_rect_covers_line(struct tg_rect a, const struct tg_line *b);
-bool tg_rect_covers_poly(struct tg_rect a, const struct tg_poly *b);
-bool tg_line_covers_point(const struct tg_line *a, struct tg_point b);
-bool tg_line_covers_rect(const struct tg_line *a, struct tg_rect b);
-bool tg_line_covers_line(const struct tg_line *a, const struct tg_line *b);
-bool tg_line_covers_poly(const struct tg_line *a, const struct tg_poly *b);
-bool tg_line_intersects_point(const struct tg_line *a, struct tg_point b);
-bool tg_line_intersects_rect(const struct tg_line *a, struct tg_rect b);
-bool tg_line_intersects_line(const struct tg_line *a, const struct tg_line *b);
-bool tg_line_intersects_poly(const struct tg_line *a, const struct tg_poly *b);
-bool tg_point_intersects_point(struct tg_point a, struct tg_point b);
-bool tg_point_intersects_rect(struct tg_point a, struct tg_rect b);
-bool tg_point_intersects_line(struct tg_point a, const struct tg_line *b);
-bool tg_point_intersects_poly(struct tg_point a, const struct tg_poly *b);
-bool tg_rect_intersects_rect(struct tg_rect a, struct tg_rect b);
-bool tg_rect_intersects_line(struct tg_rect a, const struct tg_line *b);
-bool tg_rect_intersects_poly(struct tg_rect a, const struct tg_poly *b);
-bool tg_segment_intersects_segment(struct tg_segment a, struct tg_segment b);
-bool tg_poly_covers_xy(const struct tg_poly *a, double x, double y);
-bool tg_poly_touches_line(const struct tg_poly *a, const struct tg_line *b);
-bool tg_poly_coveredby_poly(const struct tg_poly *a, const struct tg_poly *b);
-bool tg_poly_covers_point(const struct tg_poly *a, struct tg_point b);
-bool tg_poly_covers_rect(const struct tg_poly *a, struct tg_rect b);
-bool tg_poly_covers_line(const struct tg_poly *a, const struct tg_line *b);
-bool tg_poly_covers_poly(const struct tg_poly *a, const struct tg_poly *b);
-bool tg_poly_intersects_point(const struct tg_poly *a, struct tg_point b);
-bool tg_poly_intersects_rect(const struct tg_poly *a, struct tg_rect b);
-bool tg_poly_intersects_line(const struct tg_poly *a, const struct tg_line *b);
-bool tg_poly_intersects_poly(const struct tg_poly *a, const struct tg_poly *b);
-bool tg_geom_intersects_point(const struct tg_geom *a, struct tg_point b);
-
 static_assert(sizeof(int) == 4 || sizeof(int) == 8,  "invalid int size");
 
 // Function attribute for noinline.
@@ -490,6 +922,16 @@ static void *(*_realloc)(void*, size_t) = NULL;
 static void (*_free)(void*) = NULL;
 static enum tg_index default_index = TG_NATURAL;
 static int default_index_spread = 16;
+static bool print_fixed_floats = false;
+
+/// Set the floating point printing to be fixed size.
+/// By default floating points are printed using their smallest textual 
+/// representation. Such as 800000 is converted to "8e5". This is ideal when
+/// both accuracy and size are desired. But there may be times when only
+/// fixed epresentations are wanted, in that case set this param to true.
+void tg_env_set_print_fixed_floats(bool print) {
+    print_fixed_floats = print;
+}
 
 /// Allow for configuring a custom allocator.
 ///
@@ -726,12 +1168,6 @@ static bool point_on_segment(struct tg_point p, struct tg_segment s) {
     }
     return collinear(s.a.x, s.a.y, s.b.x, s.b.y, p.x, p.y);
 }
-
-enum tg_raycast_result {
-    TG_OUT,  // point is above, below, or to the right of the segment
-    TG_IN,   // point is to the left (and inside the vertical bounds)
-    TG_ON,   // point is on the segment
-};
 
 static enum tg_raycast_result raycast(struct tg_segment seg, 
     struct tg_point p)
@@ -995,12 +1431,12 @@ struct ystripe {
     int *indexes;
 };
 
-struct buf {
+struct tg_buf {
     uint8_t *data;
     size_t len, cap;
 };
 
-static bool buf_ensure(struct buf *buf, size_t len) {
+static bool tg_buf_ensure(struct tg_buf *buf, size_t len) {
     if (buf->cap-buf->len >= len) return true;
     size_t cap = buf->cap;
     do {
@@ -1014,22 +1450,24 @@ static bool buf_ensure(struct buf *buf, size_t len) {
     return true;
 }
 
-// buf_append_byte append byte to buffer. 
+// tg_buf_append_byte append byte to buffer. 
 // The buf->len should be greater than before, otherwise out of memory.
-static bool buf_append_byte(struct buf *buf, uint8_t b) {
-    if (!buf_ensure(buf, 1)) return false;
+static bool tg_buf_append_byte(struct tg_buf *buf, uint8_t b) {
+    if (!tg_buf_ensure(buf, 1)) return false;
     buf->data[buf->len++] = b;
     return true;
 }
 
-static bool buf_append_bytes(struct buf *buf, uint8_t *bytes, size_t nbytes) {
-    if (!buf_ensure(buf, nbytes)) return false;
+static bool tg_buf_append_bytes(struct tg_buf *buf, uint8_t *bytes,
+    size_t nbytes)
+{
+    if (!tg_buf_ensure(buf, nbytes)) return false;
     memcpy(buf->data+buf->len, bytes, nbytes);
     buf->len += nbytes;
     return true;
 }
 
-static bool buf_trunc(struct buf *buf) {
+static bool tg_buf_trunc(struct tg_buf *buf) {
     if (buf->cap-buf->len > 8) {
         uint8_t *data = tg_realloc(buf->data, buf->len);
         if (!data) return false;
@@ -1745,6 +2183,8 @@ static struct tg_ring *series_new(const struct tg_point *points, int npoints,
     struct tg_ring *ring = tg_malloc(size+ixsize);
     if (!ring) return NULL;
     memset(ring, 0, sizeof(struct tg_ring));
+    rc_init(&ring->head.rc);
+    rc_retain(&ring->head.rc);
     ring->closed = closed;
     ring->npoints = npoints;
     ring->nsegs = nsegs;
@@ -1836,7 +2276,7 @@ struct tg_ring *tg_ring_new_ix(const struct tg_point *points, int npoints,
 /// @param ring Input ring
 /// @see RingFuncs
 void tg_ring_free(struct tg_ring *ring) {
-    if (!ring || ring->head.noheap || rc_sub(&ring->head.rc)) return;
+    if (!ring || ring->head.noheap || !rc_release(&ring->head.rc)) return;
     if (ring->ystripes) tg_free(ring->ystripes);
     tg_free(ring);
 }
@@ -1863,7 +2303,7 @@ struct tg_ring *tg_ring_clone(const struct tg_ring *ring) {
         return tg_ring_copy(ring);
     }
     struct tg_ring *ring_mut = (struct tg_ring*)ring;
-    rc_add(&ring_mut->head.rc);
+    rc_retain(&ring_mut->head.rc);
     return ring_mut;
 }
 
@@ -3325,6 +3765,8 @@ struct tg_poly *tg_poly_new(const struct tg_ring *exterior,
         goto fail;
     }
     memset(poly, 0, sizeof(struct tg_poly));
+    rc_init(&poly->head.rc);
+    rc_retain(&poly->head.rc);
     poly->head.base = BASE_POLY;
     poly->head.type = TG_POLYGON;
     poly->exterior = tg_ring_clone(exterior);
@@ -3354,7 +3796,7 @@ void tg_poly_free(struct tg_poly *poly) {
         tg_ring_free((struct tg_ring*)poly);
         return;
     }
-    if (poly->head.noheap || rc_sub(&poly->head.rc)) return;
+    if (poly->head.noheap || !rc_release(&poly->head.rc)) return;
     if (poly->exterior) tg_ring_free(poly->exterior);
     if (poly->holes) {
         for (int i = 0; i < poly->nholes; i++) {
@@ -3377,7 +3819,7 @@ struct tg_poly *tg_poly_clone(const struct tg_poly *poly) {
         return tg_poly_copy(poly);
     }
     struct tg_poly *poly_mut = (struct tg_poly*)poly;
-    rc_add(&poly_mut->head.rc);
+    rc_retain(&poly_mut->head.rc);
     return poly_mut;
 }
 
@@ -3842,6 +4284,8 @@ static struct tg_geom *geom_new(enum tg_geom_type type) {
     struct tg_geom *geom = tg_malloc(sizeof(struct tg_geom));
     if (!geom) return NULL;
     memset(geom, 0, sizeof(struct tg_geom));
+    rc_init(&geom->head.rc);
+    rc_retain(&geom->head.rc);
     geom->head.base = BASE_GEOM;
     geom->head.type = type;
     return geom;
@@ -3864,6 +4308,8 @@ struct tg_geom *tg_geom_new_point(struct tg_point point) {
     struct boxed_point *geom = tg_malloc(sizeof(struct boxed_point));
     if (!geom) return NULL;
     memset(geom, 0, sizeof(struct boxed_point));
+    rc_init(&geom->head.rc);
+    rc_retain(&geom->head.rc);
     geom->head.base = BASE_POINT;
     geom->head.type = TG_POINT;
     geom->point = point;
@@ -3871,7 +4317,7 @@ struct tg_geom *tg_geom_new_point(struct tg_point point) {
 }
 
 static void boxed_point_free(struct boxed_point *point) {
-    if (point->head.noheap || rc_sub(&point->head.rc)) return;
+    if (point->head.noheap || !rc_release(&point->head.rc)) return;
     tg_free(point);
 }
 
@@ -4625,12 +5071,12 @@ struct tg_geom *tg_geom_clone(const struct tg_geom *geom) {
         return tg_geom_copy(geom);
     }
     struct tg_geom *geom_mut = (struct tg_geom*)geom;
-    rc_add(&geom_mut->head.rc);
+    rc_retain(&geom_mut->head.rc);
     return geom_mut;
 }
 
 static void geom_free(struct tg_geom *geom) {
-    if (geom->head.noheap || rc_sub(&geom->head.rc)) return;
+    if (geom->head.noheap || !rc_release(&geom->head.rc)) return;
     switch (geom->head.type) {
     case TG_POINT:
         break;
@@ -7391,14 +7837,14 @@ const char *tg_geom_error(const struct tg_geom *geom) {
     return (geom->head.flags&IS_ERROR) == IS_ERROR ? geom->error : NULL;
 }
 
-static bool buf_append_json_pair(struct buf *buf, struct json key, 
+static bool buf_append_json_pair(struct tg_buf *buf, struct json key, 
     struct json val)
 {
     size_t len = buf->len;
-    if (!buf_append_byte(buf, buf->len == 0 ? '{' : ',') ||
-        !buf_append_bytes(buf, (uint8_t*)json_raw(key), json_raw_length(key)) || 
-        !buf_append_byte(buf, ':') || 
-        !buf_append_bytes(buf, (uint8_t*)json_raw(val), json_raw_length(val)))
+    if (!tg_buf_append_byte(buf, buf->len == 0 ? '{' : ',') ||
+        !tg_buf_append_bytes(buf, (uint8_t*)json_raw(key), json_raw_length(key)) || 
+        !tg_buf_append_byte(buf, ':') || 
+        !tg_buf_append_bytes(buf, (uint8_t*)json_raw(val), json_raw_length(val)))
     {
         buf->len = len;
         return false;
@@ -7417,7 +7863,7 @@ static const char *take_basic_geojson(struct json json,
     bool ok = false;
     bool has_props = false;
     bool has_id = false;
-    struct buf extra = { 0 };
+    struct tg_buf extra = { 0 };
     struct json target = { 0 };
     struct json key = json_first(json);
     struct json val = json_next(key);
@@ -7512,9 +7958,9 @@ static const char *take_basic_geojson(struct json json,
         flags |= IS_EMPTY;
     }
     if (extra.len > 0) {
-        if (!buf_append_byte(&extra, '}')) goto fail;
-        if (!buf_append_byte(&extra, '\0')) goto fail;
-        if (!buf_trunc(&extra)) goto fail;
+        if (!tg_buf_append_byte(&extra, '}')) goto fail;
+        if (!tg_buf_append_byte(&extra, '\0')) goto fail;
+        if (!tg_buf_trunc(&extra)) goto fail;
     }
     ok = true;
 fail:
@@ -8057,7 +8503,7 @@ static struct tg_geom *parse_geojson_geometrycollection(struct json json,
 
 static struct tg_geom *parse_geojson_feature(struct json json, enum tg_index ix)
 {
-    struct buf combined = { 0 };
+    struct tg_buf combined = { 0 };
     PARSE_GEOJSON_BASIC_HEAD("geometry")
     if ((flags&IS_EMPTY) == IS_EMPTY) {
         geom = tg_geom_new_point_empty();
@@ -8083,20 +8529,20 @@ static struct tg_geom *parse_geojson_feature(struct json json, enum tg_index ix)
         // combine the two together as '[feature-extra,geometry-extra]'
         size_t xn0 = extra ? strlen(extra) : 0;
         size_t xn1 = strlen(geom->xjson);
-        if (!buf_append_byte(&combined, '[') || 
-            !buf_append_bytes(&combined, 
+        if (!tg_buf_append_byte(&combined, '[') || 
+            !tg_buf_append_bytes(&combined, 
                 (uint8_t*)(xn0 ? extra : "{}"), (xn0 ? xn0 : 2)) ||
-            !buf_append_byte(&combined, ',') || 
-            !buf_append_bytes(&combined, (uint8_t*)geom->xjson, xn1) ||
-            !buf_append_byte(&combined, ']') ||
-            !buf_append_byte(&combined, '\0'))
+            !tg_buf_append_byte(&combined, ',') || 
+            !tg_buf_append_bytes(&combined, (uint8_t*)geom->xjson, xn1) ||
+            !tg_buf_append_byte(&combined, ']') ||
+            !tg_buf_append_byte(&combined, '\0'))
         { goto fail; }
-        if (!buf_trunc(&combined)) goto fail;
+        if (!tg_buf_trunc(&combined)) goto fail;
         if (geom->xjson) tg_free(geom->xjson);
         geom->xjson = NULL;
         if (extra) tg_free(extra);
         extra = (char*)combined.data;
-        combined = (struct buf) { 0 };
+        combined = (struct tg_buf) { 0 };
     }
         
     PARSE_GEOJSON_BASIC_TAIL({
@@ -8298,7 +8744,7 @@ static void write_doublele(struct writer *wr, double x) {
 }
 
 static void write_string(struct writer *wr, const char *str) {
-    char *p = (char*)str;
+    const char *p = str;
     while (*p) write_char(wr, *(p++));
 }
 
@@ -8310,29 +8756,24 @@ static void write_stringn(struct writer *wr, const char *str, size_t n) {
 
 #ifdef TG_NOAMALGA
 
-#include "deps/ryu.h"
+#include "deps/fp.h"
 
 #else
 
-#define RYU_STATIC
-#define RYU_NOWRITER
+#define FP_STATIC
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 
-// BEGIN ryu.c
-// The "ryu_print" function is a lightweight wrapper around the original
-// ryu d2s_buffered function.
-
-// https://github.com/tidwall/ryu
+// BEGIN fp.c
+// https://github.com/tidwall/fp
 //
-// Copyright 2023 Joshua J Baker. All rights reserved.
+// Copyright 2025 Joshua J Baker. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 //
-
 // https://github.com/ulfjack/ryu
 //
 // Copyright 2018 Ulf Adams
@@ -8352,18 +8793,9 @@ static void write_stringn(struct writer *wr, const char *str, size_t n) {
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied.
 
-// Runtime compiler options:
-// -DRYU_DEBUG Generate verbose debugging output to stdout.
-//
-// -DRYU_ONLY_64_BIT_OPS Avoid using uint128_t or 64-bit intrinsics. Slower,
-//     depending on your compiler.
-//
-// -DRYU_OPTIMIZE_SIZE Use smaller lookup tables. Instead of storing every
-//     required power of 5, only store every 26th entry, and compute
-//     intermediate values with a multiplication. This reduces the lookup table
-//     size by about 10x (only one case, and only double) at the cost of some
-//     performance. Currently requires MSVC intrinsics.
-
+#include <inttypes.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <assert.h>
 #include <stdbool.h>
@@ -8371,22 +8803,14 @@ static void write_stringn(struct writer *wr, const char *str, size_t n) {
 #include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 
-#ifdef RYU_STATIC
-#define RYU_EXTERN static
+#ifdef FP_STATIC
+#define FP_EXTERN static
 #endif
 
-#ifndef RYU_EXTERN
-#define RYU_EXTERN
-#endif
-
-#ifdef RYU_DEBUG
-#include <inttypes.h>
-#include <stdio.h>
-#endif
-
-#if defined(_M_IX86) || defined(_M_ARM)
-#define RYU_32_BIT_PLATFORM
+#ifndef FP_EXTERN
+#define FP_EXTERN
 #endif
 
 // Returns e == 0 ? 1 : ceil(log_2(5^e)); requires 0 <= e <= 3528.
@@ -8459,50 +8883,12 @@ static const char DIGIT_TABLE[200] = {
     '9','9',
 };
 
-// Defines RYU_32_BIT_PLATFORM if applicable.
-
 // ABSL avoids uint128_t on Win32 even if __SIZEOF_INT128__ is defined.
 // Let's do the same for now.
-#if defined(__SIZEOF_INT128__) && !defined(_MSC_VER) && \
-    !defined(RYU_ONLY_64_BIT_OPS)
+#if defined(__SIZEOF_INT128__) && !defined(_MSC_VER)
 #define HAS_UINT128
-#elif defined(_MSC_VER) && !defined(RYU_ONLY_64_BIT_OPS) && defined(_M_X64)
-#define HAS_64_BIT_INTRINSICS
-#endif
-
-#if defined(HAS_UINT128)
 typedef __uint128_t uint128_t;
 #endif
-
-#if defined(HAS_64_BIT_INTRINSICS)
-
-#include <intrin.h>
-
-static inline uint64_t umul128(const uint64_t a, const uint64_t b, uint64_t* 
-    const productHi)
-{
-    return _umul128(a, b, productHi);
-}
-
-// Returns the lower 64 bits of (hi*2^64 + lo) >> dist, with 0 < dist < 64.
-static inline uint64_t shiftright128(const uint64_t lo, const uint64_t hi, 
-    const uint32_t dist)
-{
-    // For the __shiftright128 intrinsic, the shift value is always
-    // modulo 64.
-    // In the current implementation of the double-precision version
-    // of Ryu, the shift value is always < 64. (In the case
-    // RYU_OPTIMIZE_SIZE == 0, the shift value is in the range [49, 58].
-    // Otherwise in the range [2, 59].)
-    // However, this function is now also called by s2d, which requires
-    // supporting the larger shift range (TODO: what is the actual range?).
-    // Check this here in case a future change requires larger shift
-    // values. In this case this function needs to be adjusted.
-    assert(dist < 64);
-    return __shiftright128(lo, hi, (unsigned char) dist);
-}
-
-#else // defined(HAS_64_BIT_INTRINSICS)
 
 static inline uint64_t umul128(const uint64_t a, const uint64_t b, uint64_t*
     const productHi)
@@ -8545,70 +8931,6 @@ static inline uint64_t shiftright128(const uint64_t lo, const uint64_t hi,
     return (hi << (64 - dist)) | (lo >> dist);
 }
 
-#endif // defined(HAS_64_BIT_INTRINSICS)
-
-#if defined(RYU_32_BIT_PLATFORM)
-
-// Returns the high 64 bits of the 128-bit product of a and b.
-static inline uint64_t umulh(const uint64_t a, const uint64_t b) {
-    // Reuse the umul128 implementation.
-    // Optimizers will likely eliminate the instructions used to compute the
-    // low part of the product.
-    uint64_t hi;
-    umul128(a, b, &hi);
-    return hi;
-}
-
-// On 32-bit platforms, compilers typically generate calls to library
-// functions for 64-bit divisions, even if the divisor is a constant.
-//
-// E.g.:
-// https://bugs.llvm.org/show_bug.cgi?id=37932
-// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=17958
-// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=37443
-//
-// The functions here perform division-by-constant using multiplications
-// in the same way as 64-bit compilers would do.
-//
-// NB:
-// The multipliers and shift values are the ones generated by clang x64
-// for expressions like x/5, x/10, etc.
-
-static inline uint64_t div5(const uint64_t x) {
-    return umulh(x, 0xCCCCCCCCCCCCCCCDu) >> 2;
-}
-
-static inline uint64_t div10(const uint64_t x) {
-    return umulh(x, 0xCCCCCCCCCCCCCCCDu) >> 3;
-}
-
-static inline uint64_t div100(const uint64_t x) {
-    return umulh(x >> 2, 0x28F5C28F5C28F5C3u) >> 2;
-}
-
-static inline uint64_t div1e8(const uint64_t x) {
-    return umulh(x, 0xABCC77118461CEFDu) >> 26;
-}
-
-static inline uint64_t div1e9(const uint64_t x) {
-    return umulh(x >> 9, 0x44B82FA09B5A53u) >> 11;
-}
-
-static inline uint32_t mod1e9(const uint64_t x) {
-    // Avoid 64-bit math as much as possible.
-    // Returning (uint32_t) (x - 1000000000 * div1e9(x)) would
-    // perform 32x64-bit multiplication and 64-bit subtraction.
-    // x and 1000000000 * div1e9(x) are guaranteed to differ by
-    // less than 10^9, so their highest 32 bits must be identical,
-    // so we can truncate both sides to uint32_t before subtracting.
-    // We can also simplify (uint32_t) (1000000000 * div1e9(x)).
-    // We can truncate before multiplying instead of after, as multiplying
-    // the highest 32 bits of div1e9(x) can't affect the lowest 32 bits.
-    return ((uint32_t) x) - 1000000000 * ((uint32_t) div1e9(x));
-}
-
-#else // defined(RYU_32_BIT_PLATFORM)
-
 static inline uint64_t div5(const uint64_t x) {
     return x / 5;
 }
@@ -8632,8 +8954,6 @@ static inline uint64_t div1e9(const uint64_t x) {
 static inline uint32_t mod1e9(const uint64_t x) {
     return (uint32_t) (x - 1000000000 * div1e9(x));
 }
-
-#endif // defined(RYU_32_BIT_PLATFORM)
 
 static inline uint32_t pow5Factor(uint64_t value) {
     const uint64_t m_inv_5 = 14757395258967641293u;
@@ -8720,10 +9040,10 @@ static inline uint64_t mulShiftAll64(const uint64_t m, const uint64_t*
     return mulShift64(4 * m, mul, j);
 }
 
-#elif defined(HAS_64_BIT_INTRINSICS)
+#else
 
-static inline uint64_t mulShift64(const uint64_t m, const uint64_t* const mul, 
-    const int32_t j) 
+static inline uint64_t mulShift64(const uint64_t m, const uint64_t* const mul,
+    const int32_t j)
 {
     // m is maximum 55 bits
     uint64_t high1;                                   // 128
@@ -8732,21 +9052,10 @@ static inline uint64_t mulShift64(const uint64_t m, const uint64_t* const mul,
     umul128(m, mul[0], &high0);                       // 0
     const uint64_t sum = high0 + low1;
     if (sum < high0) {
-        ++high1; // overflow into high1
+      ++high1; // overflow into high1
     }
     return shiftright128(sum, high1, j - 64);
-}
-
-static inline uint64_t mulShiftAll64(const uint64_t m, const uint64_t* 
-    const mul, const int32_t j, uint64_t* const vp, uint64_t* const vm, 
-    const uint32_t mmShift)
-{
-    *vp = mulShift64(4 * m + 2, mul, j);
-    *vm = mulShift64(4 * m - 1 - mmShift, mul, j);
-    return mulShift64(4 * m, mul, j);
-}
-
-#else // !defined(HAS_UINT128) && !defined(HAS_64_BIT_INTRINSICS)
+  }
 
 // This is faster if we don't have a 64x64->128-bit multiplication.
 static inline uint64_t mulShiftAll64(uint64_t m, const uint64_t* const mul, 
@@ -8784,181 +9093,8 @@ static inline uint64_t mulShiftAll64(uint64_t m, const uint64_t* const mul,
     return shiftright128(mid, hi, (uint32_t) (j - 64 - 1));
 }
 
-#endif // HAS_64_BIT_INTRINSICS
+#endif
 
-// Include either the small or the full lookup tables depending on the mode.
-#if defined(RYU_OPTIMIZE_SIZE)
-
-// These tables are generated by PrintDoubleLookupTable.
-#define DOUBLE_POW5_INV_BITCOUNT 125
-#define DOUBLE_POW5_BITCOUNT 125
-
-static const uint64_t DOUBLE_POW5_INV_SPLIT2[15][2] = {
-    {                    1u, 2305843009213693952u },
-    {  5955668970331000884u, 1784059615882449851u },
-    {  8982663654677661702u, 1380349269358112757u },
-    {  7286864317269821294u, 2135987035920910082u },
-    {  7005857020398200553u, 1652639921975621497u },
-    { 17965325103354776697u, 1278668206209430417u },
-    {  8928596168509315048u, 1978643211784836272u },
-    { 10075671573058298858u, 1530901034580419511u },
-    {   597001226353042382u, 1184477304306571148u },
-    {  1527430471115325346u, 1832889850782397517u },
-    { 12533209867169019542u, 1418129833677084982u },
-    {  5577825024675947042u, 2194449627517475473u },
-    { 11006974540203867551u, 1697873161311732311u },
-    { 10313493231639821582u, 1313665730009899186u },
-    { 12701016819766672773u, 2032799256770390445u }
-};
-static const uint32_t POW5_INV_OFFSETS[19] = {
-    0x54544554, 0x04055545, 0x10041000, 0x00400414, 0x40010000, 0x41155555,
-    0x00000454, 0x00010044, 0x40000000, 0x44000041, 0x50454450, 0x55550054,
-    0x51655554, 0x40004000, 0x01000001, 0x00010500, 0x51515411, 0x05555554,
-    0x00000000
-};
-
-static const uint64_t DOUBLE_POW5_SPLIT2[13][2] = {
-    {                    0u, 1152921504606846976u },
-    {                    0u, 1490116119384765625u },
-    {  1032610780636961552u, 1925929944387235853u },
-    {  7910200175544436838u, 1244603055572228341u },
-    { 16941905809032713930u, 1608611746708759036u },
-    { 13024893955298202172u, 2079081953128979843u },
-    {  6607496772837067824u, 1343575221513417750u },
-    { 17332926989895652603u, 1736530273035216783u },
-    { 13037379183483547984u, 2244412773384604712u },
-    {  1605989338741628675u, 1450417759929778918u },
-    {  9630225068416591280u, 1874621017369538693u },
-    {   665883850346957067u, 1211445438634777304u },
-    { 14931890668723713708u, 1565756531257009982u }
-};
-static const uint32_t POW5_OFFSETS[21] = {
-    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x40000000, 0x59695995,
-    0x55545555, 0x56555515, 0x41150504, 0x40555410, 0x44555145, 0x44504540,
-    0x45555550, 0x40004000, 0x96440440, 0x55565565, 0x54454045, 0x40154151,
-    0x55559155, 0x51405555, 0x00000105
-};
-
-#define POW5_TABLE_SIZE 26
-static const uint64_t DOUBLE_POW5_TABLE[POW5_TABLE_SIZE] = {
-    1ull, 5ull, 25ull, 125ull, 625ull, 3125ull, 15625ull, 78125ull, 390625ull,
-    1953125ull, 9765625ull, 48828125ull, 244140625ull, 1220703125ull,
-    6103515625ull, 30517578125ull, 152587890625ull, 762939453125ull, 
-    3814697265625ull, 19073486328125ull, 95367431640625ull,
-    476837158203125ull, 2384185791015625ull, 11920928955078125ull, 
-    59604644775390625ull, 298023223876953125ull //, 1490116119384765625ull
-};
-
-#if defined(HAS_UINT128)
-
-// Computes 5^i in the form required by Ryu, and stores it in the given pointer.
-static inline void double_computePow5(const uint32_t i, uint64_t* const result)
-{
-    const uint32_t base = i / POW5_TABLE_SIZE;
-    const uint32_t base2 = base * POW5_TABLE_SIZE;
-    const uint32_t offset = i - base2;
-    const uint64_t* const mul = DOUBLE_POW5_SPLIT2[base];
-    if (offset == 0) {
-        result[0] = mul[0];
-        result[1] = mul[1];
-        return;
-    }
-    const uint64_t m = DOUBLE_POW5_TABLE[offset];
-    const uint128_t b0 = ((uint128_t) m) * mul[0];
-    const uint128_t b2 = ((uint128_t) m) * mul[1];
-    const uint32_t delta = pow5bits(i) - pow5bits(base2);
-    const uint128_t shiftedSum = (b0 >> delta) + (b2 << (64 - delta)) + 
-        ((POW5_OFFSETS[i / 16] >> ((i % 16) << 1)) & 3);
-    result[0] = (uint64_t) shiftedSum;
-    result[1] = (uint64_t) (shiftedSum >> 64);
-}
-
-// Computes 5^-i in the form required by Ryu, and stores it in the given pointer.
-static inline void double_computeInvPow5(const uint32_t i, 
-    uint64_t* const result)
-{
-    const uint32_t base = (i + POW5_TABLE_SIZE - 1) / POW5_TABLE_SIZE;
-    const uint32_t base2 = base * POW5_TABLE_SIZE;
-    const uint32_t offset = base2 - i;
-    const uint64_t* const mul = DOUBLE_POW5_INV_SPLIT2[base]; // 1/5^base2
-    if (offset == 0) {
-        result[0] = mul[0];
-        result[1] = mul[1];
-        return;
-    }
-    const uint64_t m = DOUBLE_POW5_TABLE[offset]; // 5^offset
-    const uint128_t b0 = ((uint128_t) m) * (mul[0] - 1);
-    const uint128_t b2 = ((uint128_t) m) * mul[1]; 
-    const uint32_t delta = pow5bits(base2) - pow5bits(i);
-    const uint128_t shiftedSum = ((b0 >> delta) + (b2 << (64 - delta))) + 1 + 
-        ((POW5_INV_OFFSETS[i / 16] >> ((i % 16) << 1)) & 3);
-    result[0] = (uint64_t) shiftedSum;
-    result[1] = (uint64_t) (shiftedSum >> 64);
-}
-
-#else // defined(HAS_UINT128)
-
-// Computes 5^i in the form required by Ryu, and stores it in the given pointer.
-static inline void double_computePow5(const uint32_t i, uint64_t* const result)
-{
-    const uint32_t base = i / POW5_TABLE_SIZE;
-    const uint32_t base2 = base * POW5_TABLE_SIZE;
-    const uint32_t offset = i - base2;
-    const uint64_t* const mul = DOUBLE_POW5_SPLIT2[base];
-    if (offset == 0) {
-        result[0] = mul[0];
-        result[1] = mul[1];
-        return;
-    }
-    const uint64_t m = DOUBLE_POW5_TABLE[offset];
-    uint64_t high1;
-    const uint64_t low1 = umul128(m, mul[1], &high1);
-    uint64_t high0;
-    const uint64_t low0 = umul128(m, mul[0], &high0);
-    const uint64_t sum = high0 + low1;
-    if (sum < high0) {
-        ++high1; // overflow into high1
-    }
-    // high1 | sum | low0
-    const uint32_t delta = pow5bits(i) - pow5bits(base2);
-    result[0] = shiftright128(low0, sum, delta) + 
-        ((POW5_OFFSETS[i / 16] >> ((i % 16) << 1)) & 3);
-    result[1] = shiftright128(sum, high1, delta);
-}
-
-// Computes 5^-i in the form required by Ryu, and stores it in the given
-// pointer.
-static inline void double_computeInvPow5(const uint32_t i,
-    uint64_t* const result)
-{
-    const uint32_t base = (i + POW5_TABLE_SIZE - 1) / POW5_TABLE_SIZE;
-    const uint32_t base2 = base * POW5_TABLE_SIZE;
-    const uint32_t offset = base2 - i;
-    const uint64_t* const mul = DOUBLE_POW5_INV_SPLIT2[base]; // 1/5^base2
-    if (offset == 0) {
-        result[0] = mul[0];
-        result[1] = mul[1];
-        return;
-    }
-    const uint64_t m = DOUBLE_POW5_TABLE[offset];
-    uint64_t high1;
-    const uint64_t low1 = umul128(m, mul[1], &high1);
-    uint64_t high0;
-    const uint64_t low0 = umul128(m, mul[0] - 1, &high0);
-    const uint64_t sum = high0 + low1;
-    if (sum < high0) {
-        ++high1; // overflow into high1
-    }
-    // high1 | sum | low0
-    const uint32_t delta = pow5bits(base2) - pow5bits(i);
-    result[0] = shiftright128(low0, sum, delta) + 1 + 
-        ((POW5_INV_OFFSETS[i / 16] >> ((i % 16) << 1)) & 3);
-    result[1] = shiftright128(sum, high1, delta);
-}
-
-#endif // defined(HAS_UINT128)
-
-#else
 // These tables are generated by PrintDoubleLookupTable.
 #define DOUBLE_POW5_INV_BITCOUNT 125
 #define DOUBLE_POW5_BITCOUNT 125
@@ -9640,7 +9776,7 @@ static const uint64_t DOUBLE_POW5_SPLIT[DOUBLE_POW5_TABLE_SIZE][2] = {
     {  8710297504448807696u, 1780059086805761106u }
 };
 
-#endif
+
 
 #define DOUBLE_MANTISSA_BITS 52
 #define DOUBLE_EXPONENT_BITS 11
@@ -9695,10 +9831,6 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa,
     const bool even = (m2 & 1) == 0;
     const bool acceptBounds = even;
 
-#ifdef RYU_DEBUG
-    printf("-> %" PRIu64 " * 2^%d\n", m2, e2 + 2);
-#endif
-
     // Step 2: Determine the interval of valid decimal representations.
     const uint64_t mv = 4 * m2;
     // Implicit bool -> int conversion. True is 1, false is 0.
@@ -9720,17 +9852,7 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa,
         e10 = (int32_t) q;
         const int32_t k = DOUBLE_POW5_INV_BITCOUNT + pow5bits((int32_t) q) - 1;
         const int32_t i = -e2 + (int32_t) q + k;
-#if defined(RYU_OPTIMIZE_SIZE)
-        uint64_t pow5[2];
-        double_computeInvPow5(q, pow5);
-        vr = mulShiftAll64(m2, pow5, i, &vp, &vm, mmShift);
-#else
         vr = mulShiftAll64(m2, DOUBLE_POW5_INV_SPLIT[q], i, &vp, &vm, mmShift);
-#endif
-#ifdef RYU_DEBUG
-        printf("%" PRIu64 " * 2^%d / 10^%u\n", mv, e2, q);
-        printf("V+=%" PRIu64 "\nV =%" PRIu64 "\nV-=%" PRIu64 "\n", vp, vr, vm);
-#endif
         if (q <= 21) {
             // This should use q <= 22, but I think 21 is also safe. Smaller 
             // values may still be safe, but it's more difficult to reason
@@ -9756,18 +9878,7 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa,
         const int32_t i = -e2 - (int32_t) q;
         const int32_t k = pow5bits(i) - DOUBLE_POW5_BITCOUNT;
         const int32_t j = (int32_t) q - k;
-#if defined(RYU_OPTIMIZE_SIZE)
-        uint64_t pow5[2];
-        double_computePow5(i, pow5);
-        vr = mulShiftAll64(m2, pow5, j, &vp, &vm, mmShift);
-#else
         vr = mulShiftAll64(m2, DOUBLE_POW5_SPLIT[i], j, &vp, &vm, mmShift);
-#endif
-#ifdef RYU_DEBUG
-        printf("%" PRIu64 " * 5^%d / 10^%u\n", mv, -e2, q);
-        printf("%u %d %d %d\n", q, i, k, j);
-        printf("V+=%" PRIu64 "\nV =%" PRIu64 "\nV-=%" PRIu64 "\n", vp, vr, vm);
-#endif
         if (q <= 1) {
             // {vr,vp,vm} is trailing zeros if {mv,mp,mm} has at least q
             // trailing 0 bits. mv = 4 * m2, so it always has at least two
@@ -9788,18 +9899,8 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa,
             // <=> p2(mv) >= q && p5(mv) - e2 >= q
             // <=> p2(mv) >= q (because -e2 >= q)
             vrIsTrailingZeros = multipleOfPowerOf2(mv, q);
-#ifdef RYU_DEBUG
-            printf("vr is trailing zeros=%s\n", vrIsTrailingZeros ? "true" : 
-                "false");
-#endif
         }
     }
-#ifdef RYU_DEBUG
-    printf("e10=%d\n", e10);
-    printf("V+=%" PRIu64 "\nV =%" PRIu64 "\nV-=%" PRIu64 "\n", vp, vr, vm);
-    printf("vm is trailing zeros=%s\n", vmIsTrailingZeros ? "true" : "false");
-    printf("vr is trailing zeros=%s\n", vrIsTrailingZeros ? "true" : "false");
-#endif
 
       // Step 4: Find the shortest decimal representation in the interval of 
       // valid representations.
@@ -9828,10 +9929,6 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa,
               vm = vmDiv10;
               ++removed;
           }
-#ifdef RYU_DEBUG
-        printf("V+=%" PRIu64 "\nV =%" PRIu64 "\nV-=%" PRIu64 "\n", vp, vr, vm);
-        printf("d-10=%s\n", vmIsTrailingZeros ? "true" : "false");
-#endif
         if (vmIsTrailingZeros) {
             for (;;) {
                 const uint64_t vmDiv10 = div10(vm);
@@ -9852,16 +9949,12 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa,
                 ++removed;
             }
         }
-#ifdef RYU_DEBUG
-        printf("%" PRIu64 " %d\n", vr, lastRemovedDigit);
-        printf("vr is trailing zeros=%s\n", vrIsTrailingZeros ? "true" : 
-            "false");
-#endif
         if (vrIsTrailingZeros && lastRemovedDigit == 5 && vr % 2 == 0) {
             // Round even if the exact number is .....50..0.
             lastRemovedDigit = 4;
         }
-        // We need to take vr + 1 if vr is outside bounds or we need to round up.
+        // We need to take vr + 1 if vr is outside bounds or we need to round 
+        // up.
         output = vr + ((vr == vm && (!acceptBounds || !vmIsTrailingZeros)) || 
             lastRemovedDigit >= 5);
     } else {
@@ -9899,22 +9992,11 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa,
             vm = vmDiv10;
             ++removed;
         }
-#ifdef RYU_DEBUG
-        printf("%" PRIu64 " roundUp=%s\n", vr, roundUp ? "true" : "false");
-        printf("vr is trailing zeros=%s\n", vrIsTrailingZeros ? "true" : 
-            "false");
-#endif
         // We need to take vr + 1 if vr is outside bounds or we need to round 
         // up.
         output = vr + (vr == vm || roundUp);
     }
     const int32_t exp = e10 + removed;
-
-#ifdef RYU_DEBUG
-    printf("V+=%" PRIu64 "\nV =%" PRIu64 "\nV-=%" PRIu64 "\n", vp, vr, vm);
-    printf("O=%" PRIu64 "\n", output);
-    printf("EXP=%d\n", exp);
-#endif
 
     floating_decimal_64 fd;
     fd.exponent = exp;
@@ -9922,7 +10004,7 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa,
     return fd;
 }
 
-static inline int to_chars(const floating_decimal_64 v, const bool sign, 
+static inline int to_chars64(const floating_decimal_64 v, const bool sign, 
     char* const result)
 {
     // Step 5: Print the decimal representation.
@@ -9933,12 +10015,6 @@ static inline int to_chars(const floating_decimal_64 v, const bool sign,
 
     uint64_t output = v.mantissa;
     const uint32_t olength = decimalLength17(output);
-
-#ifdef RYU_DEBUG
-    printf("DIGITS=%" PRIu64 "\n", v.mantissa);
-    printf("OLEN=%u\n", olength);
-    printf("EXP=%u\n", v.exponent + olength);
-#endif
 
     // Print the decimal digits.
     // The following code is equivalent to:
@@ -9966,10 +10042,10 @@ static inline int to_chars(const floating_decimal_64 v, const bool sign,
         const uint32_t c1 = (c / 100) << 1;
         const uint32_t d0 = (d % 100) << 1;
         const uint32_t d1 = (d / 100) << 1;
-        memcpy(result + index + olength - i - 1, DIGIT_TABLE + c0, 2);
-        memcpy(result + index + olength - i - 3, DIGIT_TABLE + c1, 2);
-        memcpy(result + index + olength - i - 5, DIGIT_TABLE + d0, 2);
-        memcpy(result + index + olength - i - 7, DIGIT_TABLE + d1, 2);
+        memcpy(result + index + olength - 1, DIGIT_TABLE + c0, 2);
+        memcpy(result + index + olength - 3, DIGIT_TABLE + c1, 2);
+        memcpy(result + index + olength - 5, DIGIT_TABLE + d0, 2);
+        memcpy(result + index + olength - 7, DIGIT_TABLE + d1, 2);
         i += 8;
     }
     uint32_t output2 = (uint32_t) output;
@@ -10073,14 +10149,6 @@ static int d2s_buffered_n(double f, char* result) {
     // subnormal cases.
     const uint64_t bits = double_to_bits(f);
 
-#ifdef RYU_DEBUG
-    printf("IN=");
-    for (int32_t bit = 63; bit >= 0; --bit) {
-        printf("%d", (int) ((bits >> bit) & 1));
-    }
-    printf("\n");
-#endif
-
     // Decode bits into sign, mantissa, and exponent.
     const bool ieeeSign = ((bits >> (DOUBLE_MANTISSA_BITS + 
         DOUBLE_EXPONENT_BITS)) & 1) != 0;
@@ -10118,7 +10186,7 @@ static int d2s_buffered_n(double f, char* result) {
         v = d2d(ieeeMantissa, ieeeExponent);
     }
 
-    return to_chars(v, ieeeSign, result);
+    return to_chars64(v, ieeeSign, result);
 }
 
 static void d2s_buffered(double f, char* result) {
@@ -10129,27 +10197,929 @@ static void d2s_buffered(double f, char* result) {
     result[index] = '\0';
 }
 
-#ifndef RYU_NOWRITER
-struct writer {
+// Returns the number of decimal digits in v, which must not contain more than 
+// 9 digits.
+static inline uint32_t decimalLength9(const uint32_t v) {
+    // Function precondition: v is not a 10-digit number.
+    // (f2s: 9 digits are sufficient for round-tripping.)
+    // (d2fixed: We print 9-digit blocks.)
+    assert(v < 1000000000);
+    if (v >= 100000000) { return 9; }
+    if (v >= 10000000) { return 8; }
+    if (v >= 1000000) { return 7; }
+    if (v >= 100000) { return 6; }
+    if (v >= 10000) { return 5; }
+    if (v >= 1000) { return 4; }
+    if (v >= 100) { return 3; }
+    if (v >= 10) { return 2; }
+    return 1;
+}
+
+static inline uint32_t float_to_bits(const float f) {
+    uint32_t bits = 0;
+    memcpy(&bits, &f, sizeof(float));
+    return bits;
+}
+
+#define DOUBLE_POW5_INV_BITCOUNT 125
+#define DOUBLE_POW5_BITCOUNT 125
+#define DOUBLE_POW5_INV_TABLE_SIZE 342
+#define DOUBLE_POW5_TABLE_SIZE 326
+#define FLOAT_POW5_INV_BITCOUNT (DOUBLE_POW5_INV_BITCOUNT - 64)
+#define FLOAT_POW5_BITCOUNT (DOUBLE_POW5_BITCOUNT - 64)
+
+static inline uint32_t pow5factor_32(uint32_t value) {
+    uint32_t count = 0;
+    for (;;) {
+        assert(value != 0);
+        const uint32_t q = value / 5;
+        const uint32_t r = value % 5;
+        if (r != 0) {
+            break;
+        }
+        value = q;
+        ++count;
+    }
+    return count;
+}
+
+// Returns true if value is divisible by 5^p.
+static inline bool multipleOfPowerOf5_32(const uint32_t value,
+    const uint32_t p)
+{
+    return pow5factor_32(value) >= p;
+}
+
+// Returns true if value is divisible by 2^p.
+static inline bool multipleOfPowerOf2_32(const uint32_t value,
+    const uint32_t p)
+{
+    // __builtin_ctz doesn't appear to be faster here.
+    return (value & ((1u << p) - 1)) == 0;
+}
+
+// It seems to be slightly faster to avoid uint128_t here, although the
+// generated code for uint128_t looks slightly nicer.
+static inline uint32_t mulShift32(const uint32_t m, const uint64_t factor,
+    const int32_t shift)
+{
+    assert(shift > 32);
+
+    // The casts here help MSVC to avoid calls to the __allmul library
+    // function.
+    const uint32_t factorLo = (uint32_t)(factor);
+    const uint32_t factorHi = (uint32_t)(factor >> 32);
+    const uint64_t bits0 = (uint64_t)m * factorLo;
+    const uint64_t bits1 = (uint64_t)m * factorHi;
+    const uint64_t sum = (bits0 >> 32) + bits1;
+    const uint64_t shiftedSum = sum >> (shift - 32);
+    assert(shiftedSum <= UINT32_MAX);
+    return (uint32_t) shiftedSum;
+}
+
+static inline uint32_t mulPow5InvDivPow2(const uint32_t m, const uint32_t q,
+    const int32_t j)
+{
+    return mulShift32(m, DOUBLE_POW5_INV_SPLIT[q][1] + 1, j);
+}
+
+static inline uint32_t mulPow5divPow2(const uint32_t m, const uint32_t i,
+    const int32_t j)
+{
+    return mulShift32(m, DOUBLE_POW5_SPLIT[i][1], j);
+}
+
+#define FLOAT_MANTISSA_BITS 23
+#define FLOAT_EXPONENT_BITS 8
+#define FLOAT_BIAS 127
+
+// A floating decimal representing m * 10^e.
+typedef struct floating_decimal_32 {
+    uint32_t mantissa;
+    // Decimal exponent's range is -45 to 38
+    // inclusive, and can fit in a short if needed.
+    int32_t exponent;
+} floating_decimal_32;
+
+static inline floating_decimal_32 f2d(const uint32_t ieeeMantissa,
+    const uint32_t ieeeExponent)
+{
+    int32_t e2;
+    uint32_t m2;
+    if (ieeeExponent == 0) {
+        // We subtract 2 so that the bounds computation has 2 additional bits.
+        e2 = 1 - FLOAT_BIAS - FLOAT_MANTISSA_BITS - 2;
+        m2 = ieeeMantissa;
+    } else {
+        e2 = (int32_t) ieeeExponent - FLOAT_BIAS - FLOAT_MANTISSA_BITS - 2;
+        m2 = (1u << FLOAT_MANTISSA_BITS) | ieeeMantissa;
+    }
+    const bool even = (m2 & 1) == 0;
+    const bool acceptBounds = even;
+
+    // Step 2: Determine the interval of valid decimal representations.
+    const uint32_t mv = 4 * m2;
+    const uint32_t mp = 4 * m2 + 2;
+    // Implicit bool -> int conversion. True is 1, false is 0.
+    const uint32_t mmShift = ieeeMantissa != 0 || ieeeExponent <= 1;
+    const uint32_t mm = 4 * m2 - 1 - mmShift;
+
+    // Step 3: Convert to a decimal power base using 64-bit arithmetic.
+    uint32_t vr, vp, vm;
+    int32_t e10;
+    bool vmIsTrailingZeros = false;
+    bool vrIsTrailingZeros = false;
+    uint8_t lastRemovedDigit = 0;
+    if (e2 >= 0) {
+        const uint32_t q = log10Pow2(e2);
+        e10 = (int32_t) q;
+        const int32_t k = FLOAT_POW5_INV_BITCOUNT + pow5bits((int32_t) q) - 1;
+        const int32_t i = -e2 + (int32_t) q + k;
+        vr = mulPow5InvDivPow2(mv, q, i);
+        vp = mulPow5InvDivPow2(mp, q, i);
+        vm = mulPow5InvDivPow2(mm, q, i);
+        if (q != 0 && (vp - 1) / 10 <= vm / 10) {
+            // We need to know one removed digit even if we are not going to
+            // loop below. We could use q = X - 1 above, except that would
+            // require 33 bits for the result, and we've found that
+            // 32-bit arithmetic is faster even on 64-bit machines.
+            const int32_t l = FLOAT_POW5_INV_BITCOUNT +
+                pow5bits((int32_t)(q - 1)) - 1;
+            lastRemovedDigit = (uint8_t) (mulPow5InvDivPow2(mv, q - 1, -e2 + 
+                (int32_t) q - 1 + l) % 10);
+        }
+        if (q <= 9) {
+            // The largest power of 5 that fits in 24 bits is 5^10, but q <= 9
+            // seems to be safe as well.
+            // Only one of mp, mv, and mm can be a multiple of 5, if any.
+            if (mv % 5 == 0) {
+                vrIsTrailingZeros = multipleOfPowerOf5_32(mv, q);
+            } else if (acceptBounds) {
+                vmIsTrailingZeros = multipleOfPowerOf5_32(mm, q);
+            } else {
+                vp -= multipleOfPowerOf5_32(mp, q);
+            }
+        }
+    } else {
+        const uint32_t q = log10Pow5(-e2);
+        e10 = (int32_t) q + e2;
+        const int32_t i = -e2 - (int32_t) q;
+        const int32_t k = pow5bits(i) - FLOAT_POW5_BITCOUNT;
+        int32_t j = (int32_t) q - k;
+        vr = mulPow5divPow2(mv, (uint32_t) i, j);
+        vp = mulPow5divPow2(mp, (uint32_t) i, j);
+        vm = mulPow5divPow2(mm, (uint32_t) i, j);
+        if (q != 0 && (vp - 1) / 10 <= vm / 10) {
+            j = (int32_t) q - 1 - (pow5bits(i + 1) - FLOAT_POW5_BITCOUNT);
+            lastRemovedDigit = (uint8_t) (mulPow5divPow2(mv, 
+                (uint32_t) (i + 1), j) % 10);
+        }
+        if (q <= 1) {
+            // {vr,vp,vm} is trailing zeros if {mv,mp,mm} has at least q
+            // trailing 0 bits.
+            // mv = 4 * m2, so it always has at least two trailing 0 bits.
+            vrIsTrailingZeros = true;
+            if (acceptBounds) {
+                // mm = mv - 1 - mmShift, so it has 1 trailing 0 bit iff 
+                // mmShift == 1.
+                vmIsTrailingZeros = mmShift == 1;
+            } else {
+                // mp = mv + 2, so it always has at least one trailing 0 bit.
+                --vp;
+            }
+        } else if (q < 31) { // TODO(ulfjack): Use a tighter bound here.
+            vrIsTrailingZeros = multipleOfPowerOf2_32(mv, q - 1);
+        }
+    }
+
+    // Step 4: Find the shortest decimal representation in the interval of
+    // valid representations.
+    int32_t removed = 0;
+    uint32_t output;
+    if (vmIsTrailingZeros || vrIsTrailingZeros) {
+        // General case, which happens rarely (~4.0%).
+        while (vp / 10 > vm / 10) {
+#ifdef __clang__ // https://bugs.llvm.org/show_bug.cgi?id=23106
+            // The compiler does not realize that vm % 10 can be computed from
+            // vm / 10 as vm - (vm / 10) * 10.
+            vmIsTrailingZeros &= vm - (vm / 10) * 10 == 0;
+#else
+            vmIsTrailingZeros &= vm % 10 == 0;
+#endif
+            vrIsTrailingZeros &= lastRemovedDigit == 0;
+            lastRemovedDigit = (uint8_t) (vr % 10);
+            vr /= 10;
+            vp /= 10;
+            vm /= 10;
+            ++removed;
+        }
+        if (vmIsTrailingZeros) {
+            while (vm % 10 == 0) {
+                vrIsTrailingZeros &= lastRemovedDigit == 0;
+                lastRemovedDigit = (uint8_t) (vr % 10);
+                vr /= 10;
+                vp /= 10;
+                vm /= 10;
+                ++removed;
+            }
+        }
+        if (vrIsTrailingZeros && lastRemovedDigit == 5 && vr % 2 == 0) {
+            // Round even if the exact number is .....50..0.
+            lastRemovedDigit = 4;
+        }
+        // We need to take vr + 1 if vr is outside bounds or we need to round
+        // up.
+        output = vr + ((vr == vm && (!acceptBounds || !vmIsTrailingZeros)) || 
+            lastRemovedDigit >= 5);
+    } else {
+        // Specialized for the common case (~96.0%). Percentages below are
+        // relative to this.
+        // Loop iterations below (approximately):
+        // 0: 13.6%, 1: 70.7%, 2: 14.1%, 3: 1.39%, 4: 0.14%, 5+: 0.01%
+        while (vp / 10 > vm / 10) {
+            lastRemovedDigit = (uint8_t) (vr % 10);
+            vr /= 10;
+            vp /= 10;
+            vm /= 10;
+            ++removed;
+        }
+        // We need to take vr + 1 if vr is outside bounds or we need to round
+        // up.
+        output = vr + (vr == vm || lastRemovedDigit >= 5);
+    }
+    const int32_t exp = e10 + removed;
+  
+    floating_decimal_32 fd;
+    fd.exponent = exp;
+    fd.mantissa = output;
+    return fd;
+}
+
+static inline int to_chars(const floating_decimal_32 v, const bool sign,
+    char* const result)
+{
+    // Step 5: Print the decimal representation.
+    int index = 0;
+    if (sign) {
+        result[index++] = '-';
+    }
+
+    uint32_t output = v.mantissa;
+    const uint32_t olength = decimalLength9(output);
+
+
+    // Print the decimal digits.
+    // The following code is equivalent to:
+    // for (uint32_t i = 0; i < olength - 1; ++i) {
+    //   const uint32_t c = output % 10; output /= 10;
+    //   result[index + olength - i] = (char) ('0' + c);
+    // }
+    // result[index] = '0' + output % 10;
+    uint32_t i = 0;
+    while (output >= 10000) {
+#ifdef __clang__ // https://bugs.llvm.org/show_bug.cgi?id=38217
+        const uint32_t c = output - 10000 * (output / 10000);
+#else
+        const uint32_t c = output % 10000;
+#endif
+        output /= 10000;
+        const uint32_t c0 = (c % 100) << 1;
+        const uint32_t c1 = (c / 100) << 1;
+        memcpy(result + index + olength - i - 1, DIGIT_TABLE + c0, 2);
+        memcpy(result + index + olength - i - 3, DIGIT_TABLE + c1, 2);
+        i += 4;
+    }
+    if (output >= 100) {
+        const uint32_t c = (output % 100) << 1;
+        output /= 100;
+        memcpy(result + index + olength - i - 1, DIGIT_TABLE + c, 2);
+        i += 2;
+    }
+    if (output >= 10) {
+        const uint32_t c = output << 1;
+        // We can't use memcpy here: the decimal dot goes between these two
+        // digits.
+        result[index + olength - i] = DIGIT_TABLE[c + 1];
+        result[index] = DIGIT_TABLE[c];
+    } else {
+        result[index] = (char) ('0' + output);
+    }
+
+    // Print decimal point if needed.
+    if (olength > 1) {
+        result[index + 1] = '.';
+        index += olength + 1;
+    } else {
+        ++index;
+    }
+
+    // Print the exponent.
+    result[index++] = 'E';
+    int32_t exp = v.exponent + (int32_t) olength - 1;
+    if (exp < 0) {
+        result[index++] = '-';
+        exp = -exp;
+    }
+
+    if (exp >= 10) {
+      memcpy(result + index, DIGIT_TABLE + 2 * exp, 2);
+      index += 2;
+    } else {
+      result[index++] = (char) ('0' + exp);
+    }
+
+    return index;
+}
+
+static int f2s_buffered_n(float f, char* result) {
+    // Step 1: Decode the floating-point number, and unify normalized and
+    // subnormal cases.
+    const uint32_t bits = float_to_bits(f);
+
+
+    // Decode bits into sign, mantissa, and exponent.
+    const bool ieeeSign = ((bits >> (FLOAT_MANTISSA_BITS + 
+        FLOAT_EXPONENT_BITS)) & 1) != 0;
+    const uint32_t ieeeMantissa = bits & ((1u << FLOAT_MANTISSA_BITS) - 1);
+    const uint32_t ieeeExponent = (bits >> FLOAT_MANTISSA_BITS) & 
+        ((1u << FLOAT_EXPONENT_BITS) - 1);
+
+    // Case distinction; exit early for the easy cases.
+    if (ieeeExponent == ((1u << FLOAT_EXPONENT_BITS) - 1u) || 
+        (ieeeExponent == 0 && ieeeMantissa == 0))
+    {
+        return copy_special_str(result, ieeeSign, ieeeExponent, ieeeMantissa);
+    }
+
+    const floating_decimal_32 v = f2d(ieeeMantissa, ieeeExponent);
+    return to_chars(v, ieeeSign, result);
+}
+
+static void f2s_buffered(float f, char* result) {
+    const int index = f2s_buffered_n(f, result);
+
+    // Terminate the string.
+    result[index] = '\0';
+}
+
+enum RyuStatus {
+    RYU_SUCCESS,
+    RYU_INPUT_TOO_SHORT,
+    RYU_INPUT_TOO_LONG,
+    RYU_MALFORMED_INPUT
+};
+
+// Returns e == 0 ? 1 : [log_2(5^e)]; requires 0 <= e <= 3528.
+static inline int32_t log2pow5(const int32_t e) {
+    // This approximation works up to the point that the multiplication
+    // overflows at e = 3529.
+    // If the multiplication were done in 64 bits, it would fail at 5^4004
+    // which is just greater than 2^9297.
+    assert(e >= 0);
+    assert(e <= 3528);
+    return (int32_t) ((((uint32_t) e) * 1217359) >> 19);
+}
+
+// Returns e == 0 ? 1 : ceil(log_2(5^e)); requires 0 <= e <= 3528.
+static inline int32_t ceil_log2pow5(const int32_t e) {
+    return log2pow5(e) + 1;
+}
+
+// These tables are generated by PrintDoubleLookupTable.
+#define DOUBLE_POW5_INV_BITCOUNT 125
+#define DOUBLE_POW5_BITCOUNT 125
+
+#define DOUBLE_POW5_INV_TABLE_SIZE 342
+#define DOUBLE_POW5_TABLE_SIZE 326
+
+#define DOUBLE_MANTISSA_BITS 52
+#define DOUBLE_EXPONENT_BITS 11
+#define DOUBLE_EXPONENT_BIAS 1023
+
+static inline uint32_t floor_log2(const uint64_t value) {
+    return 63 - __builtin_clzll(value);
+}
+
+// The max function is already defined on Windows.
+static inline int32_t max32(int32_t a, int32_t b) {
+    return a < b ? b : a;
+}
+
+static inline double int64Bits2Double(uint64_t bits) {
+    double f;
+    memcpy(&f, &bits, sizeof(double));
+    return f;
+}
+
+static enum RyuStatus s2d_n(const char * buffer, const int len, double * result)
+{
+    if (len == 0) {
+        return RYU_INPUT_TOO_SHORT;
+    }
+    int m10digits = 0;
+    int e10digits = 0;
+    int dotIndex = len;
+    int eIndex = len;
+    uint64_t m10 = 0;
+    int32_t e10 = 0;
+    bool signedM = false;
+    bool signedE = false;
+    int i = 0;
+    if (buffer[i] == '-') {
+        signedM = true;
+        i++;
+    }
+    for (; i < len; i++) {
+        char c = buffer[i];
+        if (c == '.') {
+            if (dotIndex != len) {
+                return RYU_MALFORMED_INPUT;
+            }
+            dotIndex = i;
+            continue;
+        }
+        if ((c < '0') || (c > '9')) {
+            break;
+        }
+        if (m10digits >= 17) {
+            return RYU_INPUT_TOO_LONG;
+        }
+        m10 = 10 * m10 + (c - '0');
+        if (m10 != 0) {
+            m10digits++;
+        }
+    }
+    if (i < len && ((buffer[i] == 'e') || (buffer[i] == 'E'))) {
+        eIndex = i;
+        i++;
+        if (i < len && ((buffer[i] == '-') || (buffer[i] == '+'))) {
+            signedE = buffer[i] == '-';
+            i++;
+        }
+        for (; i < len; i++) {
+            char c = buffer[i];
+            if ((c < '0') || (c > '9')) {
+                return RYU_MALFORMED_INPUT;
+            }
+            if (e10digits > 3) {
+                // TODO: Be more lenient. Return +/-Infinity or +/-0 instead.
+                return RYU_INPUT_TOO_LONG;
+            }
+            e10 = 10 * e10 + (c - '0');
+            if (e10 != 0) {
+                e10digits++;
+            }
+        }
+    }
+    if (i < len) {
+        return RYU_MALFORMED_INPUT;
+    }
+    if (signedE) {
+        e10 = -e10;
+    }
+    e10 -= dotIndex < eIndex ? eIndex - dotIndex - 1 : 0;
+    if (m10 == 0) {
+        *result = signedM ? -0.0 : 0.0;
+        return RYU_SUCCESS;
+    }
+
+    if ((m10digits + e10 <= -324) || (m10 == 0)) {
+        // Number is less than 1e-324, which should be rounded down to 0;
+        // return +/-0.0.
+        uint64_t ieee = ((uint64_t) signedM) << (DOUBLE_EXPONENT_BITS +
+            DOUBLE_MANTISSA_BITS);
+        *result = int64Bits2Double(ieee);
+        return RYU_SUCCESS;
+    }
+    if (m10digits + e10 >= 310) {
+        // Number is larger than 1e+309, which should be rounded to +/-Infinity.
+        uint64_t ieee = (((uint64_t) signedM) << (DOUBLE_EXPONENT_BITS +
+            DOUBLE_MANTISSA_BITS)) | (0x7ffull << DOUBLE_MANTISSA_BITS);
+        *result = int64Bits2Double(ieee);
+        return RYU_SUCCESS;
+    }
+
+    // Convert to binary float m2 * 2^e2, while retaining information about
+    // whether the conversion was exact (trailingZeros).
+    int32_t e2;
+    uint64_t m2;
+    bool trailingZeros;
+    if (e10 >= 0) {
+        // The length of m * 10^e in bits is:
+        //   log2(m10 * 10^e10) = log2(m10) + e10 log2(10) = log2(m10) + e10 +
+        //     e10 * log2(5)
+        //
+        // We want to compute the DOUBLE_MANTISSA_BITS + 1 top-most bits (+1
+        // for the implicit leading one in IEEE format). We therefore choose a
+        // binary output exponent of
+        //   log2(m10 * 10^e10) - (DOUBLE_MANTISSA_BITS + 1).
+        //
+        // We use floor(log2(5^e10)) so that we get at least this many bits;
+        // better to have an additional bit than to not have enough bits.
+        e2 = floor_log2(m10) + e10 + log2pow5(e10) - (DOUBLE_MANTISSA_BITS + 1);
+
+        // We now compute [m10 * 10^e10 / 2^e2] = [m10 * 5^e10 / 2^(e2-e10)].
+        // To that end, we use the DOUBLE_POW5_SPLIT table.
+        int j = e2 - e10 - ceil_log2pow5(e10) + DOUBLE_POW5_BITCOUNT;
+        assert(j >= 0);
+        assert(e10 < DOUBLE_POW5_TABLE_SIZE);
+        m2 = mulShift64(m10, DOUBLE_POW5_SPLIT[e10], j);
+        // We also compute if the result is exact, i.e.,
+        //   [m10 * 10^e10 / 2^e2] == m10 * 10^e10 / 2^e2.
+        // This can only be the case if 2^e2 divides m10 * 10^e10, which in
+        // turn requires that the largest power of 2 that divides m10 + e10 is
+        // greater than e2. If e2 is less than e10, then the result must be
+        // exact. Otherwise we use the existing multipleOfPowerOf2 function.
+        trailingZeros = e2 < e10 || (e2 - e10 < 64 && multipleOfPowerOf2(m10, 
+            e2 - e10));
+    } else {
+        e2 = floor_log2(m10) + e10 - ceil_log2pow5(-e10) - 
+            (DOUBLE_MANTISSA_BITS + 1);
+        int j = e2 - e10 + ceil_log2pow5(-e10) - 1 + DOUBLE_POW5_INV_BITCOUNT;
+        assert(-e10 < DOUBLE_POW5_INV_TABLE_SIZE);
+        m2 = mulShift64(m10, DOUBLE_POW5_INV_SPLIT[-e10], j);
+        trailingZeros = multipleOfPowerOf5(m10, -e10);
+    }
+
+    // Compute the final IEEE exponent.
+    uint32_t ieee_e2 = (uint32_t) max32(0, e2 + DOUBLE_EXPONENT_BIAS + 
+        floor_log2(m2));
+
+    if (ieee_e2 > 0x7fe) {
+        // Final IEEE exponent is larger than the maximum representable; 
+        // return +/-Infinity.
+        uint64_t ieee = (((uint64_t) signedM) << (DOUBLE_EXPONENT_BITS + 
+            DOUBLE_MANTISSA_BITS)) | (0x7ffull << DOUBLE_MANTISSA_BITS);
+        *result = int64Bits2Double(ieee);
+        return RYU_SUCCESS;
+    }
+
+    // We need to figure out how much we need to shift m2. The tricky part is 
+    // that we need to take the final IEEE exponent into account, so we need to
+    // reverse the bias and also special-case the value 0.
+    int32_t shift = (ieee_e2 == 0 ? 1 : ieee_e2) - e2 - DOUBLE_EXPONENT_BIAS - 
+        DOUBLE_MANTISSA_BITS;
+    assert(shift >= 0);
+    
+    // We need to round up if the exact value is more than 0.5 above the value
+    // we computed. That's equivalent to checking if the last removed bit was 1
+    // and either the value was not just trailing zeros or the result would
+    // otherwise be odd.
+    //
+    // We need to update trailingZeros given that we have the exact output
+    // exponent ieee_e2 now.
+    trailingZeros &= (m2 & ((1ull << (shift - 1)) - 1)) == 0;
+    uint64_t lastRemovedBit = (m2 >> (shift - 1)) & 1;
+    bool roundUp = (lastRemovedBit != 0) && (!trailingZeros || (((m2 >> shift)
+        & 1) != 0));
+
+    uint64_t ieee_m2 = (m2 >> shift) + roundUp;
+    assert(ieee_m2 <= (1ull << (DOUBLE_MANTISSA_BITS + 1)));
+    ieee_m2 &= (1ull << DOUBLE_MANTISSA_BITS) - 1;
+    if (ieee_m2 == 0 && roundUp) {
+        // Due to how the IEEE represents +/-Infinity, we don't need to check
+        // for overflow here.
+        ieee_e2++;
+    }
+    
+    uint64_t ieee = (((((uint64_t) signedM) << DOUBLE_EXPONENT_BITS) | 
+        (uint64_t)ieee_e2) << DOUBLE_MANTISSA_BITS) | ieee_m2;
+    *result = int64Bits2Double(ieee);
+    return RYU_SUCCESS;
+}
+
+#define FLOAT_MANTISSA_BITS 23
+#define FLOAT_EXPONENT_BITS 8
+#define FLOAT_EXPONENT_BIAS 127
+
+static inline uint32_t floor_log2_32(const uint32_t value) {
+    return 31 - __builtin_clz(value);
+}
+
+static inline float int32Bits2Float(uint32_t bits) {
+    float f;
+    memcpy(&f, &bits, sizeof(float));
+    return f;
+}
+
+static enum RyuStatus s2f_n(const char * buffer, const int len, float * result){
+    if (len == 0) {
+        return RYU_INPUT_TOO_SHORT;
+    }
+    int m10digits = 0;
+    int e10digits = 0;
+    int dotIndex = len;
+    int eIndex = len;
+    uint32_t m10 = 0;
+    int32_t e10 = 0;
+    bool signedM = false;
+    bool signedE = false;
+    int i = 0;
+    if (buffer[i] == '-') {
+        signedM = true;
+        i++;
+    }
+    for (; i < len; i++) {
+        char c = buffer[i];
+        if (c == '.') {
+            if (dotIndex != len) {
+                return RYU_MALFORMED_INPUT;
+            }
+            dotIndex = i;
+            continue;
+        }
+        if ((c < '0') || (c > '9')) {
+            break;
+        }
+        if (m10digits >= 9) {
+            return RYU_INPUT_TOO_LONG;
+        }
+        m10 = 10 * m10 + (c - '0');
+        if (m10 != 0) {
+            m10digits++;
+        }
+    }
+    if (i < len && ((buffer[i] == 'e') || (buffer[i] == 'E'))) {
+        eIndex = i;
+        i++;
+        if (i < len && ((buffer[i] == '-') || (buffer[i] == '+'))) {
+            signedE = buffer[i] == '-';
+            i++;
+        }
+        for (; i < len; i++) {
+            char c = buffer[i];
+            if ((c < '0') || (c > '9')) {
+                return RYU_MALFORMED_INPUT;
+            }
+            if (e10digits > 3) {
+                // TODO: Be more lenient. Return +/-Infinity or +/-0 instead.
+                return RYU_INPUT_TOO_LONG;
+            }
+            e10 = 10 * e10 + (c - '0');
+            if (e10 != 0) {
+                e10digits++;
+            }
+        }
+    }
+    if (i < len) {
+        return RYU_MALFORMED_INPUT;
+    }
+    if (signedE) {
+        e10 = -e10;
+    }
+    e10 -= dotIndex < eIndex ? eIndex - dotIndex - 1 : 0;
+    if (m10 == 0) {
+        *result = signedM ? -0.0f : 0.0f;
+        return RYU_SUCCESS;
+    }
+
+    if ((m10digits + e10 <= -46) || (m10 == 0)) {
+        // Number is less than 1e-46, which should be rounded down to 0; 
+        // return +/-0.0.
+        uint32_t ieee = ((uint32_t) signedM) << (FLOAT_EXPONENT_BITS +
+            FLOAT_MANTISSA_BITS);
+        *result = int32Bits2Float(ieee);
+        return RYU_SUCCESS;
+    }
+    if (m10digits + e10 >= 40) {
+        // Number is larger than 1e+39, which should be rounded to +/-Infinity.
+        uint32_t ieee = (((uint32_t) signedM) << (FLOAT_EXPONENT_BITS + 
+            FLOAT_MANTISSA_BITS)) | (0xffu << FLOAT_MANTISSA_BITS);
+        *result = int32Bits2Float(ieee);
+        return RYU_SUCCESS;
+    }
+
+    // Convert to binary float m2 * 2^e2, while retaining information about 
+    // whether the conversion was exact (trailingZeros).
+    int32_t e2;
+    uint32_t m2;
+    bool trailingZeros;
+    if (e10 >= 0) {
+        // The length of m * 10^e in bits is:
+        //   log2(m10 * 10^e10) = log2(m10) + e10 log2(10) = log2(m10) + e10 + 
+        //   e10 * log2(5)
+        //
+        // We want to compute the FLOAT_MANTISSA_BITS + 1 top-most bits (+1 for
+        // the implicit leading one in IEEE format). We therefore choose a
+        // binary output exponent of
+        //   log2(m10 * 10^e10) - (FLOAT_MANTISSA_BITS + 1).
+        //
+        // We use floor(log2(5^e10)) so that we get at least this many bits; 
+        // better to have an additional bit than to not have enough bits.
+        e2 = floor_log2_32(m10) + e10 + log2pow5(e10) - (FLOAT_MANTISSA_BITS + 
+            1);
+
+        // We now compute [m10 * 10^e10 / 2^e2] = [m10 * 5^e10 / 2^(e2-e10)].
+        // To that end, we use the FLOAT_POW5_SPLIT table.
+        int j = e2 - e10 - ceil_log2pow5(e10) + FLOAT_POW5_BITCOUNT;
+        assert(j >= 0);
+        m2 = mulPow5divPow2(m10, e10, j);
+
+        // We also compute if the result is exact, i.e.,
+        //   [m10 * 10^e10 / 2^e2] == m10 * 10^e10 / 2^e2.
+        // This can only be the case if 2^e2 divides m10 * 10^e10, which in
+        // turn requires that the largest power of 2 that divides m10 + e10 is
+        // greater than e2. If e2 is less than e10, then the result must be 
+        // exact. Otherwise we use the existing multipleOfPowerOf2 function.
+        trailingZeros = e2 < e10 || (e2 - e10 < 32 && multipleOfPowerOf2_32(m10, 
+            e2 - e10));
+    } else {
+        e2 = floor_log2_32(m10) + e10 - ceil_log2pow5(-e10) - 
+            (FLOAT_MANTISSA_BITS + 1);
+
+        // We now compute [m10 * 10^e10 / 2^e2] = [m10 / (5^(-e10) 2^(e2-e10))].
+        int j = e2 - e10 + ceil_log2pow5(-e10) - 1 + FLOAT_POW5_INV_BITCOUNT;
+        m2 = mulPow5InvDivPow2(m10, -e10, j);
+
+        // We also compute if the result is exact, i.e.,
+        //   [m10 / (5^(-e10) 2^(e2-e10))] == m10 / (5^(-e10) 2^(e2-e10))
+        //
+        // If e2-e10 >= 0, we need to check whether (5^(-e10) 2^(e2-e10))
+        // divides m10, which is the case iff pow5(m10) >= -e10 AND 
+        //    pow2(m10) >= e2-e10.
+        //
+        // If e2-e10 < 0, we have actually computed
+        //    [m10 * 2^(e10 e2) / 5^(-e10)] above, and we need to check
+        // whether 5^(-e10) divides (m10 * 2^(e10-e2)), which is the case iff
+        // pow5(m10 * 2^(e10-e2)) = pow5(m10) >= -e10.
+        trailingZeros = (e2 < e10 || (e2 - e10 < 32 && 
+            multipleOfPowerOf2_32(m10, e2 - e10))) && 
+            multipleOfPowerOf5_32(m10, -e10);
+    }
+
+    // Compute the final IEEE exponent.
+    uint32_t ieee_e2 = (uint32_t) max32(0, e2 + FLOAT_EXPONENT_BIAS + 
+        floor_log2_32(m2));
+
+    if (ieee_e2 > 0xfe) {
+        // Final IEEE exponent is larger than the maximum representable; 
+        // return +/-Infinity.
+        uint32_t ieee = (((uint32_t) signedM) << (FLOAT_EXPONENT_BITS + 
+            FLOAT_MANTISSA_BITS)) | (0xffu << FLOAT_MANTISSA_BITS);
+        *result = int32Bits2Float(ieee);
+        return RYU_SUCCESS;
+    }
+
+    // We need to figure out how much we need to shift m2. The tricky part is 
+    // that we need to take the final IEEE exponent into account, so we need
+    // to reverse the bias and also special-case the value 0.
+    int32_t shift = (ieee_e2 == 0 ? 1 : ieee_e2) - e2 - FLOAT_EXPONENT_BIAS - 
+        FLOAT_MANTISSA_BITS;
+    assert(shift >= 0);
+
+    // We need to round up if the exact value is more than 0.5 above the value 
+    // we computed. That's equivalent to checking if the last removed bit was
+    // 1 and either the value was not just trailing zeros or the result would
+    // otherwise be odd.
+    //
+    // We need to update trailingZeros given that we have the exact output
+    // exponent ieee_e2 now.
+    trailingZeros &= (m2 & ((1u << (shift - 1)) - 1)) == 0;
+    uint32_t lastRemovedBit = (m2 >> (shift - 1)) & 1;
+    bool roundUp = (lastRemovedBit != 0) && (!trailingZeros || (((m2 >> shift) 
+        & 1) != 0));
+
+    uint32_t ieee_m2 = (m2 >> shift) + roundUp;
+    assert(ieee_m2 <= (1u << (FLOAT_MANTISSA_BITS + 1)));
+    ieee_m2 &= (1u << FLOAT_MANTISSA_BITS) - 1;
+    if (ieee_m2 == 0 && roundUp) {
+        // Rounding up may overflow the mantissa.
+        // In this case we move a trailing zero of the mantissa into the
+        // exponent.
+        // Due to how the IEEE represents +/-Infinity, we don't need to check
+        // for overflow here.
+        ieee_e2++;
+    }
+    uint32_t ieee = (((((uint32_t) signedM) << FLOAT_EXPONENT_BITS) | 
+        (uint32_t)ieee_e2) << FLOAT_MANTISSA_BITS) | ieee_m2;
+    *result = int32Bits2Float(ieee);
+    return RYU_SUCCESS;
+}
+
+struct fp_writer {
     uint8_t *dst;
     size_t n;
     size_t count;
 };
 
-static void write_nullterm(struct writer *wr) {
+static void fp_write_nullterm(struct fp_writer *wr) {
     if (wr->n > wr->count) wr->dst[wr->count] = '\0';
     else if (wr->n > 0) wr->dst[wr->n-1] = '\0';
 }
 
-static void write_char(struct writer *wr, char b) {
+static void fp_write_char(struct fp_writer *wr, char b) {
     if (wr->count < wr->n) wr->dst[wr->count] = b;
     wr->count++;
 }
-#endif
 
-RYU_EXTERN
-size_t ryu_string(double d, char fmt, char dst[], size_t nbytes) {
-    struct writer wr = { .dst = (uint8_t*)dst, .n = nbytes };
+struct fp_info {
+    bool ok;     // number is valid
+    bool sign;   // has sign. Is a negative number
+    size_t frac; // has dot. Index of '.' or zero if none
+    size_t exp;  // has exponent. Index of 'e' or zero if none
+    size_t len;  // number of bytes parsed
+};
+
+/// Parses the next number from a data stream and returns information.
+/// This is compatible with JSON, WKT, and general numerical values.
+/// This does not convert the data into a number.
+/// It only get basic information for validation and later parsing.
+FP_EXTERN struct fp_info fp_parse(const char *data, size_t len) {
+    size_t i = 0;
+    bool sign = false;
+    size_t frac = 0;
+    size_t exp = 0;
+    if (i == len) {
+        goto fail;
+    }
+    // sign
+    if (data[i] == '-') {
+        sign = true;
+        i++;
+        if (i == len) {
+            goto fail;
+        }
+        if (data[i] < '0' || data[i] > '9') {
+            goto fail;
+        }
+    }
+    // int
+    if (i == len) {
+        goto fail;
+    }
+    if (data[i] == '0') {
+        i++;
+    } else {
+        for (; i < len; i++) {
+            if (data[i] >= '0' && data[i] <= '9') {
+                continue;
+            }
+            break;
+        }
+    }
+    if (i == len) {
+        goto ok;
+    }
+    // frac
+    if (data[i] == '.') {
+        frac = i;
+        i++;
+        if (i == len) {
+            goto fail;
+        }
+        if (data[i] < '0' || data[i] > '9') {
+            goto fail;
+        }
+        i++;
+        for (; i < len; i++) {
+            if (data[i] >= '0' && data[i] <= '9') {
+                continue;
+            }
+            break;
+        }
+    }
+    if (i == len) {
+        goto ok;
+    }
+    // exp
+    if (data[i] == 'e' || data[i] == 'E') {
+        exp = i;
+        i++;
+        if (i == len) {
+            goto fail;
+        }
+        if (data[i] == '+' || data[i] == '-') {
+            i++;
+        }
+        if (i == len) {
+            goto fail;
+        }
+        if (data[i] < '0' || data[i] > '9') {
+            goto fail;
+        }
+        i++;
+        for (; i < len; i++) {
+            if (data[i] >= '0' && data[i] <= '9') {
+                continue;
+            }
+            break;
+        }
+    }
+ok:
+    return (struct fp_info){ true, sign, frac, exp, i };
+fail:
+    return (struct fp_info){ false, sign, frac, exp, i };
+}
+
+union fpoint {
+    double d;
+    float f;
+};
+
+static size_t fp_utoa(union fpoint fpoint, int bits, char fmt,
+    char dst[], size_t nbytes)
+{
+    struct fp_writer wr = { .dst = (uint8_t*)dst, .n = nbytes };
     char buf[25];
     bool f = true;
     bool g = false;
@@ -10169,7 +11139,11 @@ size_t ryu_string(double d, char fmt, char dst[], size_t nbytes) {
         if (fmt == 'E') ech = 'E';
         // fall through
     case 'f':
-        d2s_buffered(d, buf);
+        if (bits == 32) {
+            f2s_buffered(fpoint.f, buf);
+        } else {
+            d2s_buffered(fpoint.d, buf);
+        }
         break;
     default:
         buf[0] = '\0';
@@ -10177,7 +11151,7 @@ size_t ryu_string(double d, char fmt, char dst[], size_t nbytes) {
     bool neg = false;
     char *p = buf;
     if (p[0] == '-') {
-        write_char(&wr, '-');
+        fp_write_char(&wr, '-');
         p++;
         neg = true;
     }
@@ -10197,50 +11171,50 @@ size_t ryu_string(double d, char fmt, char dst[], size_t nbytes) {
         } else {
             *p = '\0';
         }
-        while (*p) write_char(&wr, *(p++));
-        write_nullterm(&wr);
+        while (*p) fp_write_char(&wr, *(p++));
+        fp_write_nullterm(&wr);
         return wr.count;
     }
     if (!f) {
         *e = '\0';
-        while (*p) write_char(&wr, *(p++));
-        write_char(&wr, ech);
+        while (*p) fp_write_char(&wr, *(p++));
+        fp_write_char(&wr, ech);
         p++;
-        if (j && *p != '-') write_char(&wr, '+');
-        while (*p) write_char(&wr, *(p++));
-        write_nullterm(&wr);
+        if (j && *p != '-') fp_write_char(&wr, '+');
+        while (*p) fp_write_char(&wr, *(p++));
+        fp_write_nullterm(&wr);
         return wr.count;
     }
     int en = atoi(e+1);
     *e = '\0';
     if (en < 0) {
-        write_char(&wr, '0');
-        write_char(&wr, '.');
+        fp_write_char(&wr, '0');
+        fp_write_char(&wr, '.');
         en = -en;
         for (int i = 0; i < en-1; i++) {
-            write_char(&wr, '0');
+            fp_write_char(&wr, '0');
         }
-        write_char(&wr, *(p++));
+        fp_write_char(&wr, *(p++));
         if (*p) {
             p++;
-            while (*p) write_char(&wr, *(p++));
+            while (*p) fp_write_char(&wr, *(p++));
         }
     } else {
-        write_char(&wr, *(p++));
+        fp_write_char(&wr, *(p++));
         if (*p) p++;
         for (int i = 0; i < en; i++) {
             if (*p) {
-                write_char(&wr, *(p++));
+                fp_write_char(&wr, *(p++));
             } else {
-                write_char(&wr, '0');
+                fp_write_char(&wr, '0');
             }
         }
         if (*p && !(*p == '0' && *(p+1) == '\0')) {
-            write_char(&wr, '.');
-            while (*p) write_char(&wr, *(p++));
+            fp_write_char(&wr, '.');
+            while (*p) fp_write_char(&wr, *(p++));
         }
     }
-    write_nullterm(&wr);
+    fp_write_nullterm(&wr);
     if (g) {
         bool rewrite = false;
         if (j) {
@@ -10250,20 +11224,95 @@ size_t ryu_string(double d, char fmt, char dst[], size_t nbytes) {
         }
         if (rewrite) {
             // rewind and rewrite the buffer
-            wr = (struct writer){ .dst = (uint8_t*)dst, .n = nbytes };
+            wr = (struct fp_writer){ .dst = (uint8_t*)dst, .n = nbytes };
             p = buf;
             *e = '\0';
-            while (*p) write_char(&wr, *(p++));
-            write_char(&wr, ech);
+            while (*p) fp_write_char(&wr, *(p++));
+            fp_write_char(&wr, ech);
             p++;
-            if (j && *p != '-') write_char(&wr, '+');
-            while (*p) write_char(&wr, *(p++));
-            write_nullterm(&wr);
+            if (j && *p != '-') fp_write_char(&wr, '+');
+            while (*p) fp_write_char(&wr, *(p++));
+            fp_write_nullterm(&wr);
         }
     }
     return wr.count;
 }
-// END ryu.c
+
+/// fp_dtoa converts a double into a string representation that is copied
+/// into the provided C string buffer.
+///
+/// Returns the number of characters, not including the null-terminator, needed
+/// to store the double into the C string buffer.
+/// If the returned length is greater than nbytes-1, then only a parital copy
+/// occurred.
+/// 
+/// The format is one of 
+///   'e' (-d.ddddedd, a decimal exponent)
+///   'E' (-d.ddddEdd, a decimal exponent)
+///   'f' (-ddd.dddd, no exponent)
+///   'g' ('e' for large exponents, 'f' otherwise) 
+///   'G' ('E' for large exponents, 'f' otherwise)
+///   'j' ('e' for large exponents, 'f' otherwise) (matches javascript format)
+///   'J' ('E' for large exponents, 'f' otherwise) (matches javascript format)
+FP_EXTERN size_t fp_dtoa(double d, char fmt, char dst[], size_t n) {
+    return fp_utoa((union fpoint){ .d = d }, 64, fmt, dst, n);
+}
+
+/// fp_ftoa converts a float into a string representation that is copied
+/// into the provided C string buffer.
+///
+/// Returns the number of characters, not including the null-terminator, needed
+/// to store the float into the C string buffer.
+/// If the returned length is greater than nbytes-1, then only a parital copy
+/// occurred.
+/// 
+/// The format is one of 
+///   'e' (-d.ddddedd, a decimal exponent)
+///   'E' (-d.ddddEdd, a decimal exponent)
+///   'f' (-ddd.dddd, no exponent)
+///   'g' ('e' for large exponents, 'f' otherwise) 
+///   'G' ('E' for large exponents, 'f' otherwise)
+///   'j' ('e' for large exponents, 'f' otherwise) (matches javascript format)
+///   'J' ('E' for large exponents, 'f' otherwise) (matches javascript format)
+FP_EXTERN size_t fp_ftoa(float f, char fmt, char dst[], size_t n) {
+    return fp_utoa((union fpoint){ .f = f }, 32, fmt, dst, n);
+}
+
+// s2d_n is very strict and will sometime return RYU_INPUT_TOO_LONG even
+// though the number is correct, albeit just a very long string.
+// In that case fallback to the built-in strtod().
+#define fp_fallback_clib(func) if (len > 0) {     \
+    char *end;                                    \
+    errno = 0;                                    \
+    *x = func(data, &end);                        \
+    ok = (size_t)(end-data) == len && errno == 0; \
+    if (!ok) {                                    \
+        *x = NAN;                                 \
+    }                                             \
+}
+
+/// Convert a string to a double
+/// Returns false if the input is invalid
+FP_EXTERN bool fp_atod(const char *data, size_t len, double *x) {
+    *x = NAN;
+    bool ok = s2d_n(data, len, x) == RYU_SUCCESS;
+    if (!ok) {
+        fp_fallback_clib(strtod);
+    }
+    return ok;
+}
+
+/// Convert a string to a float
+/// Returns false if the input is invalid
+FP_EXTERN bool fp_atof(const char *data, size_t len, float *x) {
+    *x = NAN;
+    bool ok = s2f_n(data, len, x) == RYU_SUCCESS;
+    if (!ok) {
+        fp_fallback_clib(strtof);
+    }
+    return ok;
+}
+// END fp.c
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
@@ -10278,7 +11327,11 @@ static void write_string_double(struct writer *wr, double f) {
     }
     size_t dstsz = wr->count < wr->n ? wr->n - wr->count : 0;
     char *dst = wr->dst ? (char*)wr->dst+wr->count : 0;
-    wr->count += ryu_string(f, 'f', dst, dstsz);
+    if (print_fixed_floats) {
+        wr->count += fp_dtoa(f, 'f', dst, dstsz);
+    } else {
+        wr->count += fp_dtoa(f, 'g', dst, dstsz);
+    }
 }
 
 static void write_posn_geojson(struct writer *wr, struct tg_point posn) {
@@ -11105,15 +12158,6 @@ static int parse_wkt_posns(enum base base, int dims, int depth, const char *wkt,
         if (xparens) {
             if (i == len || wkt[i] != '(') {
                 // err: expected '('
-                // if (wkt[i] == 'e' || wkt[i] == 'E') {
-                //     (wkt[i+1] == 'm' || wkt[i+1] == 'M')
-                //     (wkt[i+2] == 'p' || wkt[i+2] == 'P')
-                //     (wkt[i+3] == 't' || wkt[i+3] == 'T')
-                //     (wkt[i+4] == 'y' || wkt[i+4] == 'Y')
-                //     if (i+5
-                //     // EMPTY ?
-                // }
-                // printf(">>> %c\n", wkt[i]);
                 *err = wkt_invalid_err("expected '('");
                 return -1;
             }
@@ -12288,8 +13332,29 @@ static size_t parse_wkb_posns(enum base base, int dims,
     read_uint32(count);
     if (count == 0) return i;
     if (dims == 2 && !swap && len-i >= count*2*8) {
-        // Use the point data directly. No allocations. 
-        *points = (void*)(wkb+i);
+#if !defined(__x86_64__) && !defined(__aarch64__)
+        if (((uintptr_t)(wkb+i))&7) {
+            // Must load doubles into an array with an 8-byte boundary.
+            size_t cap = posns->cap;
+            cap = cap == 0 ? 2 : cap;
+            while (cap < count*2) {
+                cap *= 2;
+            }
+            double *data = tg_realloc(posns->data, cap*8);
+            if (!data) {
+                return PARSE_FAIL;
+            }
+            memcpy(data, wkb+i, count*2*8);
+            posns->data = data;
+            posns->cap = cap;
+            posns->len = count/2;
+            *points = (void*)posns->data;
+        } else
+#endif
+        {
+            // Use the point data directly. No allocations. 
+            *points = (void*)(wkb+i);
+        }
         *npoints = count;
         i += count*2*8; 
     } else {
@@ -13439,6 +14504,9 @@ size_t tg_geom_hex(const struct tg_geom *geom, char *dst, size_t n) {
     return count*2;
 }
 
+static size_t parse_geobin(const uint8_t *geobin, size_t len, size_t i, 
+    size_t depth, enum tg_index ix, struct tg_geom **g);
+
 static struct tg_geom *parse_hex(const char *hex, size_t len, enum tg_index ix)
 {
     const uint8_t _ = 0;
@@ -13468,7 +14536,14 @@ static struct tg_geom *parse_hex(const char *hex, size_t len, enum tg_index ix)
         j++;
     }
     struct tg_geom *geom;
-    parse_wkb(dst, len/2, 0, 0, ix, &geom);
+    len /= 2;
+    size_t n;
+    if (len > 0 && dst[0] >= 0x2 && dst[0] <= 0x4) {
+        n = parse_geobin(dst, len, 0, 0, ix, &geom);
+    } else {
+        n = parse_wkb(dst, len, 0, 0, ix, &geom);
+    }
+    (void)n;
     if (must_free) tg_free(dst);
     return geom;
 invalid:
@@ -13476,7 +14551,8 @@ invalid:
     return make_parse_error(wkb_invalid_err());
 }
 
-/// Parse hex encoded Well-known binary (WKB) using provided indexing option.
+/// Parse hex encoded Well-known binary (WKB) or GeoBIN using provided indexing
+/// option.
 /// @param hex Hex data
 /// @param len Length of data
 /// @param ix Indexing option, e.g. TG_NONE, TG_NATURAL, TG_YSTRIPES
@@ -13498,7 +14574,8 @@ struct tg_geom *tg_parse_hexn_ix(const char *hex, size_t len,
     return geom;
 }
 
-/// Parse hex encoded Well-known binary (WKB) using provided indexing option.
+/// Parse hex encoded Well-known binary (WKB) or GeoBIN using provided indexing
+/// option.
 /// @param hex Hex string. Must be null-terminated
 /// @param ix Indexing option, e.g. TG_NONE, TG_NATURAL, TG_YSTRIPES
 /// @returns A geometry or an error. Use tg_geom_error() after parsing to check
@@ -13510,7 +14587,8 @@ struct tg_geom *tg_parse_hex_ix(const char *hex, enum tg_index ix) {
     return tg_parse_hexn_ix(hex, hex?strlen(hex):0, ix);
 }
 
-/// Parse hex encoded Well-known binary (WKB) with an included data length.
+/// Parse hex encoded Well-known binary (WKB) or GeoBIN with an included data 
+/// length.
 /// @param hex Hex data
 /// @param len Length of data
 /// @returns A geometry or an error. Use tg_geom_error() after parsing to check
@@ -13521,7 +14599,7 @@ struct tg_geom *tg_parse_hexn(const char *hex, size_t len) {
     return tg_parse_hexn_ix(hex, len, TG_DEFAULT);
 }
 
-/// Parse hex encoded Well-known binary (WKB).
+/// Parse hex encoded Well-known binary (WKB) or GeoBIN.
 /// @param hex A hex string. Must be null-terminated
 /// @returns A geometry or an error. Use tg_geom_error() after parsing to check
 /// for errors. 
@@ -13602,8 +14680,7 @@ struct tg_ring *tg_circle_new_ix(struct tg_point center, double radius,
     return ring;
 }
 
-struct tg_ring *tg_circle_new(struct tg_point center, double radius, int steps)
-{
+struct tg_ring *tg_circle_new(struct tg_point center, double radius, int steps){
     return tg_circle_new_ix(center, radius, steps, 0);
 }
 
@@ -14006,7 +15083,8 @@ struct tg_ring *tg_ring_copy(const struct tg_ring *ring) {
         return NULL;
     }
     memcpy(ring2, ring, size);
-    ring2->head.rc = 0;
+    rc_init(&ring2->head.rc);
+    rc_retain(&ring2->head.rc);
     ring2->head.noheap = 0;
     if (ring->ystripes) {
         ring2->ystripes = tg_malloc(ring->ystripes->memsz);
@@ -14050,7 +15128,8 @@ struct tg_poly *tg_poly_copy(const struct tg_poly *poly) {
     }
     memset(poly2, 0, sizeof(struct tg_poly));
     memcpy(&poly2->head, &poly->head, sizeof(struct head));
-    poly2->head.rc = 0;
+    rc_init(&poly2->head.rc);
+    rc_retain(&poly2->head.rc);
     poly2->head.noheap = 0;
     poly2->exterior = tg_ring_copy(poly->exterior);
     if (!poly2->exterior) {
@@ -14083,7 +15162,8 @@ static struct tg_geom *geom_copy(const struct tg_geom *geom) {
     }
     memset(geom2, 0, sizeof(struct tg_geom));
     memcpy(&geom2->head, &geom->head, sizeof(struct head));
-    geom2->head.rc = 0;
+    rc_init(&geom2->head.rc);
+    rc_retain(&geom2->head.rc);
     geom2->head.noheap = 0;
     switch (geom->head.type) {
     case TG_POINT:
@@ -14180,7 +15260,8 @@ static struct boxed_point *boxed_point_copy(const struct boxed_point *point) {
         return NULL;
     }
     memcpy(point2, point, sizeof(struct boxed_point));
-    point2->head.rc = 0;
+    rc_init(&point2->head.rc);
+    rc_retain(&point2->head.rc);
     point2->head.noheap = 0;
     return point2;
 }
@@ -14352,7 +15433,10 @@ struct tg_geom *tg_parse_ix(const void *data, size_t len, enum tg_index ix) {
         }
         goto wkt;
     }
-    goto wkb;
+    if (src[0] == 0x00 || src[0] == 0x01) {
+        goto wkb;
+    }
+    goto geobin;
 geojson:
     return tg_parse_geojsonn_ix(src, len, ix);
 wkt:
@@ -14361,6 +15445,8 @@ hex:
     return tg_parse_hexn_ix(src, len, ix);
 wkb:
     return tg_parse_wkb_ix((uint8_t*)src, len, ix);
+geobin:
+    return tg_parse_geobin_ix((uint8_t*)src, len, ix);
 }
 
 /// Utility for returning an error message wrapped in a geometry.
@@ -14376,4 +15462,489 @@ struct tg_geom *tg_geom_new_error(const char *error) {
 void tg_geom_setnoheap(struct tg_geom *geom) {
     geom->head.rc = 0;
     geom->head.noheap = 1;
+}
+
+/// Parse GeoBIN binary using provided indexing option.
+/// @param geobin GeoBIN data
+/// @param len Length of data
+/// @returns A geometry or an error. Use tg_geom_error() after parsing to check
+/// for errors. 
+/// @see tg_parse_geobin_ix()
+/// @see tg_geom_error()
+/// @see tg_geom_geobin()
+/// @see https://github.com/tidwall/tg/blob/main/docs/GeoBIN.md
+/// @see GeometryParsing
+struct tg_geom *tg_parse_geobin(const uint8_t *geobin, size_t len) {
+    return tg_parse_geobin_ix(geobin, len, 0);
+}
+
+static size_t parse_geobin(const uint8_t *geobin, size_t len, size_t i, 
+    size_t depth, enum tg_index ix, struct tg_geom **g)
+{
+    if (i == len) goto invalid;
+    if (depth > MAXDEPTH) goto invalid;
+    int head = geobin[i];
+    if (head == 0x01) {
+        return parse_wkb(geobin, len, i, depth, ix, g);
+    }
+    i++;
+    if (head < 0x02 || head > 0x04) {
+        goto invalid;
+    }
+    if (i == len) {
+        goto invalid;
+    }
+    int dims = geobin[i++];
+    if (dims && (dims < 2 || dims > 4)) {
+        goto invalid;
+    }
+    if (dims) {
+        i += 8*dims*2;
+        if (i >= len) {
+            goto invalid;
+        }
+    }
+    size_t xjsonlen = 0;
+    const char *xjson = (const char*)(geobin+i);
+    for (; i < len; i++) {
+        if (geobin[i] == '\0') {
+            i++;
+            break;
+        }
+        xjsonlen++;
+    }
+    if (i == len) {
+        goto invalid;
+    }
+    if (xjsonlen > 0 && !json_validn(xjson, xjsonlen)) {
+        goto invalid;
+    }
+    struct tg_geom *geom;
+    if (head == 0x04) {
+        // FeatureCollection
+        if (i+4 > len) {
+            goto invalid;
+        }
+        uint32_t nfeats;
+        memcpy(&nfeats, geobin+i, 4);
+        i += 4;
+        struct tg_geom **feats = tg_malloc(nfeats*sizeof(struct tg_geom*));
+        if (!feats) {
+            return 0;
+        }
+        memset(feats, 0, nfeats*sizeof(struct tg_geom*));
+        struct tg_geom *feat = 0;
+        uint32_t j = 0;
+        for (; j < nfeats; j++) {
+            i = parse_geobin(geobin, len, i, depth+1, ix, &feat);
+            if (i == PARSE_FAIL) {
+                break;
+            }
+            feats[j] = feat;
+        }
+        if (j == nfeats) {
+            geom = tg_geom_new_geometrycollection((void*)feats, nfeats);
+        }
+        for (uint32_t k = 0; k < j; k++) {
+            tg_geom_free(feats[k]);
+        }
+        tg_free(feats);
+        if (j < nfeats) {
+            *g = feat; // return the last failed feature
+            return PARSE_FAIL;
+        }
+        if (!geom) {
+            *g = 0;
+            return PARSE_FAIL;
+        }
+        geom->head.flags |= IS_FEATURE_COL;
+    } else {
+        i = parse_wkb(geobin, len, i, depth, ix, &geom);
+    }
+    if (i == PARSE_FAIL || !geom) {
+        *g = geom;
+        return PARSE_FAIL;
+    }
+    if ((xjsonlen > 0 || head == 0x03) && geom->head.base != BASE_GEOM) {
+        // Wrap base in tg_geom
+        struct tg_geom *g2 = geom_new(geom->head.type);
+        if (!g2) {
+            tg_geom_free(geom);
+            *g = 0;
+            return PARSE_FAIL;
+        }
+        if (geom->head.base == BASE_POINT) {
+            g2->point = ((struct boxed_point*)geom)->point;
+            boxed_point_free((struct boxed_point*)geom);
+        } else {
+            g2->line = (struct tg_line*)geom;
+        }
+        geom = g2;
+    }
+    if (head == 0x03) {
+        geom->head.flags |= IS_FEATURE;
+    }
+    if (xjsonlen > 0) {
+        geom->xjson = tg_malloc(xjsonlen+1);
+        if (!geom->xjson) {
+            tg_geom_free(geom);
+            *g = 0;
+            return PARSE_FAIL;
+        }
+        memcpy(geom->xjson, xjson, xjsonlen+1);
+    }
+    *g = geom;
+    return i;
+invalid:
+    *g = make_parse_error("invalid binary");
+    return PARSE_FAIL;
+    
+}
+
+/// Parse GeoBIN binary using provided indexing option.
+/// @param geobin GeoBIN data
+/// @param len Length of data
+/// @param ix Indexing option, e.g. TG_NONE, TG_NATURAL, TG_YSTRIPES
+/// @returns A geometry or an error. Use tg_geom_error() after parsing to check
+/// for errors. 
+/// @see tg_parse_geobin()
+struct tg_geom *tg_parse_geobin_ix(const uint8_t *geobin, size_t len,
+    enum tg_index ix)
+{
+    struct tg_geom *geom = NULL;
+    parse_geobin(geobin, len, 0, 0, ix, &geom);
+    if (!geom) return NULL;
+    if ((geom->head.flags&IS_ERROR) == IS_ERROR) {
+        struct tg_geom *gerr = make_parse_error("ParseError: %s", geom->error);
+        tg_geom_free(geom);
+        return gerr;
+    }
+    return geom;
+}
+
+static void write_geom_geobin(const struct tg_geom *geom, struct writer *wr);
+
+static void write_base_geom_geobin(const struct tg_geom *geom,
+    struct writer *wr)
+{
+    // extra json section
+    const char *xjson = tg_geom_extra_json(geom);
+    
+    // write head byte
+    if ((geom->head.flags&IS_FEATURE_COL) == IS_FEATURE_COL) {
+        write_byte(wr, 0x04);
+    } else if ((geom->head.flags&IS_FEATURE) == IS_FEATURE) {
+        write_byte(wr, 0x03);
+    } else if (geom->head.type == TG_POINT && !xjson) {
+        write_geom_point_wkb(geom, wr);
+        return;
+    } else {
+        write_byte(wr, 0x02);
+    }
+    
+    // mbr section
+    double min[4], max[4];
+    int dims = tg_geom_fullrect(geom, min, max);
+    write_byte(wr, dims);
+    for (int i = 0; i < dims; i++) {
+        write_doublele(wr, min[i]);
+    }
+    for (int i = 0; i < dims; i++) {
+        write_doublele(wr, max[i]);
+    }
+    
+    if (xjson) {
+        write_string(wr, xjson);
+    }
+    write_byte(wr, 0);
+    
+    if ((geom->head.flags&IS_FEATURE_COL) == IS_FEATURE_COL) {
+        // write feature collection
+        int ngeoms = tg_geom_num_geometries(geom);
+        write_uint32le(wr, (uint32_t)ngeoms);
+        for (int i = 0; i < ngeoms; i++) {
+            const struct tg_geom *g2 = tg_geom_geometry_at(geom, i);
+            write_geom_geobin(g2, wr);
+        }
+    } else {
+        // write wkb
+        write_geom_wkb(geom, wr);
+    }
+}
+
+static void write_point_geobin(struct boxed_point *point, struct writer *wr) {
+    write_point_wkb(point, wr);
+}
+
+static void write_geobin_rect(struct writer *wr, struct tg_rect rect) {
+    write_byte(wr, 2); // dims
+    write_doublele(wr, rect.min.x);
+    write_doublele(wr, rect.min.y);
+    write_doublele(wr, rect.max.x);
+    write_doublele(wr, rect.max.y);
+}
+
+static void write_line_geobin(struct tg_line *line, struct writer *wr) {
+    write_byte(wr, 0x02);
+    write_geobin_rect(wr, ((struct tg_ring*)line)->rect);
+    write_byte(wr, 0);
+    write_line_wkb(line, wr);
+}
+
+static void write_ring_geobin(struct tg_ring *ring, struct writer *wr) {
+    write_byte(wr, 0x02);
+    write_geobin_rect(wr, ring->rect);
+    write_byte(wr, 0);
+    write_ring_wkb(ring, wr);
+}
+
+static void write_poly_geobin(struct tg_poly *poly, struct writer *wr) {
+    write_byte(wr, 0x02);
+    write_geobin_rect(wr, poly->exterior->rect);
+    write_byte(wr, 0);
+    write_poly_wkb(poly, wr);
+}
+
+static void write_geom_geobin(const struct tg_geom *geom, struct writer *wr) {
+    if ((geom->head.flags&IS_FEATURE) == IS_FEATURE) {
+        goto base_geom;
+    }
+    switch (geom->head.base) {
+    case BASE_GEOM:
+    base_geom:
+        write_base_geom_geobin(geom, wr);
+        break;
+    case BASE_POINT:
+        write_point_geobin((struct boxed_point*)geom, wr);
+        break;
+    case BASE_LINE:
+        write_line_geobin((struct tg_line*)geom, wr);
+        break;
+    case BASE_RING:
+        write_ring_geobin((struct tg_ring*)geom, wr);
+        break;
+    case BASE_POLY:
+        write_poly_geobin((struct tg_poly*)geom, wr);
+        break;
+    }
+}
+
+/// Writes a GeoBIN representation of a geometry.
+///
+/// The content is stored in the buffer pointed by dst.
+///
+/// @param geom Input geometry
+/// @param dst Buffer where the resulting content is stored.
+/// @param n Maximum number of bytes to be used in the buffer.
+/// @return  The number of characters needed to store the content into the
+/// buffer.
+/// If the returned length is greater than n, then only a parital copy
+/// occurred, for example:
+///
+/// ```
+/// uint8_t buf[64];
+/// size_t len = tg_geom_geobin(geom, buf, sizeof(buf));
+/// if (len > sizeof(buf)) {
+///     // ... write did not complete ...
+/// }
+/// ```
+///
+/// @see tg_geom_geojson()
+/// @see tg_geom_wkt()
+/// @see tg_geom_wkb()
+/// @see tg_geom_hex()
+/// @see GeometryWriting
+size_t tg_geom_geobin(const struct tg_geom *geom, uint8_t *dst, size_t n) {
+    if (!geom) return 0;
+    struct writer wr = { .dst = dst, .n = n };
+    write_geom_geobin(geom, &wr);
+    return wr.count;
+}
+
+/// Returns the minimum bounding rectangle of a geometry on all dimensions.
+/// @param geom Input geometry
+/// @param min min values, must have room for 4 dimensions
+/// @param max max values, must have room for 4 dimensions
+/// @return number of dimensions, or zero if invalid geom.
+/// @see tg_geom_rect()
+int tg_geom_fullrect(const struct tg_geom *geom, double min[4], double max[4]) {
+    if (!geom) {
+        return 0;
+    }
+    struct tg_rect rect = tg_geom_rect(geom);
+    min[0] = rect.min.x;
+    min[1] = rect.min.y;
+    min[2] = 0;
+    min[3] = 0;
+    max[0] = rect.max.x;
+    max[1] = rect.max.y;
+    max[2] = 0;
+    max[3] = 0;
+    int dims = 2;
+    if (geom->head.base == BASE_GEOM) {
+        if (geom->head.type == TG_POINT) {
+            // Point
+            if ((geom->head.flags&HAS_Z) == HAS_Z) {
+                min[dims] = geom->z;
+                max[dims] = geom->z;
+                dims++;
+            }
+            if ((geom->head.flags&HAS_M) == HAS_M) {
+                min[dims] = geom->m;
+                max[dims] = geom->m;
+                dims++;
+            }
+        } else if (geom->head.type == TG_GEOMETRYCOLLECTION && geom->multi) {
+            // GeometryCollection. Expand all child geometries
+            struct tg_geom **geoms = geom->multi->geoms;
+            int ngeoms = geom->multi->ngeoms;
+            double gmin[4], gmax[4];
+            for (int i = 0; i < ngeoms; i++) {
+                int gdims = tg_geom_fullrect(geoms[i], gmin, gmax);
+                if (gdims >= 3) {
+                    if (dims == 2) {
+                        min[2] = gmin[2];
+                        max[2] = gmax[2];
+                        dims++;
+                    } else {
+                        min[2] = fmin0(min[2], gmin[2]);
+                        max[2] = fmax0(max[2], gmax[2]);
+                    }
+                }
+                if (gdims >= 4) {
+                    if (dims == 3) {
+                        min[3] = gmin[3];
+                        max[3] = gmax[3];
+                        dims++;
+                    } else {
+                        min[3] = fmin0(min[3], gmin[3]);
+                        max[3] = fmax0(max[3], gmax[3]);
+                    }
+                }
+            }
+        } else {
+            // Other geometries
+            if ((geom->head.flags&HAS_Z) == HAS_Z) dims++;
+            if ((geom->head.flags&HAS_M) == HAS_M) dims++;
+            if (dims == 3 && geom->ncoords > 0) {
+                min[2] = geom->coords[0];
+                max[2] = geom->coords[0];
+                for (int i = 1; i < geom->ncoords; i++) {
+                    min[2] = fmin0(min[2], geom->coords[i]);
+                    max[2] = fmax0(max[2], geom->coords[i]);
+                }
+            } else if (dims == 4 && geom->ncoords > 1) {
+                min[2] = geom->coords[0];
+                min[3] = geom->coords[1];
+                max[2] = geom->coords[0];
+                max[3] = geom->coords[1];
+                for (int i = 2; i < geom->ncoords-1; i+=2) {
+                    min[2] = fmin0(min[2], geom->coords[i]);
+                    min[3] = fmin0(min[3], geom->coords[i+1]);
+                    max[2] = fmax0(max[2], geom->coords[i]);
+                    max[3] = fmax0(max[3], geom->coords[i+1]);
+                }
+            }
+        }
+    }
+    return dims;
+}
+
+/// Returns the minimum bounding rectangle of GeoBIN data.
+/// @param geobin GeoBIN data
+/// @param len Length of data
+/// @param min min values, must have room for 4 dimensions
+/// @param max max values, must have room for 4 dimensions
+/// @return number of dimensions, or zero if rect cannot be determined.
+/// @see tg_geom_fullrect()
+/// @see tg_geom_rect()
+int tg_geobin_fullrect(const uint8_t *geobin, size_t len, double min[4],
+    double max[4])
+{
+    size_t dims = 0;
+    if (geobin && len > 2 && geobin[0] >= 0x01 && geobin[0] <= 0x04) {
+        if (geobin[0] == 0x01 && len >= 5) {
+            // Read Point
+            uint32_t type;
+            memcpy(&type, geobin+1, 4);
+            switch (type) {
+            case    1: dims = 2; break;
+            case 1001: dims = 3; break;
+            case 2001: dims = 3; break;
+            case 3001: dims = 4; break;
+            }
+            if (dims > 0 && len >= 5+8*dims) {
+                memcpy(min, geobin+5, 8*dims);
+                memcpy(max, geobin+5, 8*dims);
+            }
+        } else if (geobin[0] != 0x01 && len >= 2+8*(size_t)geobin[1]*2){
+            // Read MBR
+            dims = geobin[1];
+            memcpy(min, geobin+2, 8*dims);
+            memcpy(max, geobin+2+8*dims, 8*dims);
+        }
+    }
+    return dims;
+}
+
+/// Returns the minimum bounding rectangle of GeoBIN data.
+/// @param geobin GeoBIN data
+/// @param len Length of data
+/// @return the rectangle
+struct tg_rect tg_geobin_rect(const uint8_t *geobin, size_t len) {
+    struct tg_rect rect = { 0 };
+    if (geobin && len > 2 && geobin[0] >= 0x01 && geobin[0] <= 0x04) {
+        if (geobin[0] == 0x01 && len >= 21) {
+            // Read Point
+            uint32_t type;
+            memcpy(&type, geobin+1, 4);
+            if (type == 1 || type == 1001 || type == 2001 || type == 3001) {
+                memcpy(&rect.min.x, geobin+5, 8);
+                memcpy(&rect.min.y, geobin+5+8, 8);
+                rect.max.x = rect.min.x;
+                rect.max.y = rect.min.y;
+            }
+        } else if (geobin[0] != 0x01 && len >= 2+8*(size_t)geobin[1]*2){
+            // Read MBR
+            int dims = geobin[1];
+            if (dims >= 2) {
+                memcpy(&rect.min.x, geobin+2, 8);
+                memcpy(&rect.min.y, geobin+2+8, 8);
+                memcpy(&rect.max.x, geobin+2+8*dims, 8);
+                memcpy(&rect.max.y, geobin+2+8*dims+8, 8);
+            }
+        }
+    }
+    return rect;
+}
+
+/// Returns the center point of GeoBIN data.
+/// @param geobin GeoBIN data
+/// @param len Length of data
+/// @return the center point
+struct tg_point tg_geobin_point(const uint8_t *geobin, size_t len) {
+    struct tg_point point = { 0 };
+    if (geobin && len > 2 && geobin[0] >= 0x01 && geobin[0] <= 0x04) {
+        if (geobin[0] == 0x01 && len >= 21) {
+            // Read Point
+            uint32_t type;
+            memcpy(&type, geobin+1, 4);
+            if (type == 1 || type == 1001 || type == 2001 || type == 3001) {
+                memcpy(&point.x, geobin+5, 8);
+                memcpy(&point.y, geobin+5+8, 8);
+            }
+        } else if (geobin[0] != 0x01 && len >= 2+8*(size_t)geobin[1]*2){
+            // Read MBR
+            struct tg_rect rect = { 0 };
+            int dims = geobin[1];
+            if (dims >= 2) {
+                memcpy(&rect.min.x, geobin+2, 8);
+                memcpy(&rect.min.y, geobin+2+8, 8);
+                memcpy(&rect.max.x, geobin+2+8*dims, 8);
+                memcpy(&rect.max.y, geobin+2+8*dims+8, 8);
+            }
+            point = tg_rect_center(rect);
+        }
+    }
+    return point;
 }
