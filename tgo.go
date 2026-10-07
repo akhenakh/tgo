@@ -52,10 +52,13 @@ import (
 	"unsafe"
 )
 
+// Geom is a geometry. It owns its C data unless it is a view produced by an
+// accessor, in which case it must not outlive the source geometry.
 type Geom struct {
 	cg *C.struct_tg_geom
 }
 
+// GeomType identifies the underlying type of a Geom.
 type GeomType uint8
 
 const (

@@ -6,65 +6,136 @@ tgo
 
 [<img src="img/tgo.jpg">](https://github.com/akhenakh/tgo/)
 
-Go bindings for [tidwall/tg](https://github.com/tidwall/tg) Geometry library for C - Fast point-in-polygon 
+Go bindings for [tidwall/tg](https://github.com/tidwall/tg) Geometry library for C - Fast point-in-polygon.
 
-This is partial but functional, tg is a very small self contained C library, tgo compiles tg, no external dependencies needed.
+tgo compiles the self-contained `tg.c` amalgamation, no external dependencies are needed.
+
+Requires Go 1.23+ and CGO (a C compiler).
 
 ## Usage
 
-Simply go get this library with CGO enabled (you'll need a C compiler).
+Simply `go get` this library with CGO enabled.
 
-#### Read from WKT
+#### Parsing
+
 ```go
-// Unmarshal from WKT
-input := "POLYGON((0 0,0 1,1 1,1 0,0 0))"
-g, _ := tgo.UnmarshalWKT(input)
+// WKT
+g, _ := tgo.UnmarshalWKT("POLYGON((0 0,0 1,1 1,1 0,0 0))")
 
-// Marshal to WKT
-output := g.AsWKT()
-fmt.Println(output) // Prints: POLYGON((0 0,0 1,1 1,1 0,0 0))
+// GeoJSON
+g, _ := tgo.UnmarshalGeoJSON([]byte(`{"type":"Point","coordinates":[1.5,2.5]}`))
+
+// WKB
+g, _ := tgo.UnmarshalWKB(data)
+
+// Hex-encoded WKB or the compact geobin format
+g, _ := tgo.UnmarshalHex("0101000000...")
+g, _ := tgo.UnmarshalGeoBin(data)
+
+// Auto-detect WKB, WKT, Hex or GeoJSON
+g, _ := tgo.Parse(data)
 ```
 
-#### Read from GeoJSON
+Each parser also has an `...AndIndex` variant that selects the indexing
+strategy (`tgo.IndexNone`, `tgo.IndexNatural`, `tgo.IndexYStripes`).
+
+#### Writing
+
 ```go
-input := `{"type":"Feature","properties":{},"geometry":{"coordinates":[-79.20159897229003,43.636785010689835],"type":"Point"}}`
-g, _ := tgo.UnmarshalGeoJSON(input)
+s := g.AsWKT()        // WKT
+s = g.AsGeoJSON()     // GeoJSON
+s = g.AsHex()         // hex-encoded WKB
+b := g.AsWKB()        // WKB
+b = g.AsGeoBin()      // geobin
+s = g.String()        // same as AsWKT, via fmt.Stringer
 ```
 
-#### Read from WKB
+#### Constructors
+
 ```go
-input := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 248, 63, 0, 0, 0, 0, 0, 0, 4, 64}
-g, _ := tgo.UnmarshalWKB(input)
+p, _ := tgo.NewPoint(tgo.Point{X: 1, Y: 2})
+l, _ := tgo.NewLineString(tgo.LineString{{0, 0}, {1, 1}})
+poly, _ := tgo.NewPolygon(tgo.Polygon{
+	Exterior: tgo.LineString{{0, 0}, {0, 1}, {1, 1}, {1, 0}, {0, 0}},
+})
+gc, _ := tgo.NewGeometryCollection(p, l)
 ```
 
-#### Intersects
+Z/M and empty variants are available (`NewPointZ`, `NewLineStringZM`,
+`NewPolygonEmpty`, ...).
+
+#### Accessors
+
 ```go
-if Intersects(g1, g2) {
-	fmt.Println("Intersects")
-}
+g.Type()            // tgo.TypePolygon
+g.TypeString()      // "Polygon"
+g.Rect()            // bounding rectangle
+g.IsEmpty()
+g.Dims()            // 2, 3 (Z or M) or 4 (Z and M)
+g.HasZ(); g.HasM()
+g.NumPolys()
+if p, ok := g.AsPoly(); ok { ... }
+```
+
+#### Typed elements
+
+`AsPoly`, `AsLine` and `Poly.Exterior` return `*Poly`, `*Line` and `*Ring`
+views into the source geometry. Views must not outlive their source; call
+`Clone` (cheap, reference-counted) or `Copy` (deep) to keep one independently.
+
+```go
+p, _ := g.AsPoly()
+r := p.Exterior()
+r.Area(); r.Perimeter(); r.Convex(); r.Clockwise()
+r.NumPoints(); r.PointAt(0); r.Points(); r.SegmentAt(0)
+```
+
+#### Predicates
+
+```go
+tgo.Intersects(g1, g2) // also Equals, Disjoint, Contains, Within,
+                       // Covers, CoveredBy, Touches
+g1.Contains(g2)        // the same operations are also methods
+g.IntersectsXY(2, 48)
+g.IntersectsRect(r)
 ```
 
 #### Point in Polygon on large FeatureCollections
-```go
 
+```go
 // load your collection using UnmarshalGeoJSON
 found := g.StabOne(2, 48)
 if found != nil {
 	fmt.Println(found.Properties())
 }
 // Output: {"properties":{ "ADMIN": "France", "ISO_A2": "FR", "ISO_A3": "FRA" }}
+
+// Or iterate all matches with an index-aware search.
+for index, child := range g.Search(tgo.Rect{Min: tgo.Point{X: 2, Y: 48}, Max: tgo.Point{X: 2, Y: 48}}) {
+	_ = index
+	_ = child.Properties()
+}
 ```
 
-#### Types
+#### Searches and nearest segment
 
 ```go
-input := "POLYGON((0 0,0 1,1 1,1 0,0 0))"
-g, _ := tgo.UnmarshalWKT(input)
+for pair := range ringA.SearchRing(ringB) { /* pair.A, pair.B */ }
+for pair := range ring.SearchLine(line)    { /* ... */ }
 
-if g.Type() == tgo.TypePolygon() {
-	p, _ := g.AsPoly()
-	p.NumHoles()
-}
+nearest, ok := ring.Nearest(x, y)
+k := ring.NearestK(x, y, 5) // 5 nearest segments, nearest first
+```
+
+#### Value types
+
+`Point`, `Rect` and `Segment` are plain Go values with pure helpers:
+
+```go
+p := tgo.Point{X: 1, Y: 2}
+p.Rect(); p.In(r)
+tgo.Rect{Min: a, Max: b}.Center(); .Union(other); .Extend(p); .Intersects(r)
+seg.Intersects(other); seg.Rect()
 ```
 
 ## Tests
