@@ -80,8 +80,7 @@ if p, ok := g.AsPoly(); ok { ... }
 #### Typed elements
 
 `AsPoly`, `AsLine` and `Poly.Exterior` return `*Poly`, `*Line` and `*Ring`
-views into the source geometry. Views must not outlive their source; call
-`Clone` (cheap, reference-counted) or `Copy` (deep) to keep one independently.
+views into the source geometry.
 
 ```go
 p, _ := g.AsPoly()
@@ -89,6 +88,32 @@ r := p.Exterior()
 r.Area(); r.Perimeter(); r.Convex(); r.Clockwise()
 r.NumPoints(); r.PointAt(0); r.Points(); r.SegmentAt(0)
 ```
+
+#### Memory model
+
+tgo is a thin, **zero-copy** wrapper over the C library: accessors such as
+`AsPoly`, `AsLine`, `Poly.Exterior`, `PolygonAt`, `GeometryAt` and the `Search`
+iterators hand out *views* into the C-owned buffer, without copying or
+allocating on the Go side. Only the explicit extraction/writing helpers
+(`Points`, `ExtraCoords`, `AsWKB`, `AsGeoBin`, ...) allocate, because they copy
+the data out.
+
+The C memory is owned by the top-level `*Geom` (or by a `Clone`) and is released
+when its Go finalizer runs. A view is therefore only valid while its source is
+alive — **once the parent is released, the view's memory is gone**. To keep a
+child around independently, copy it:
+
+```go
+p, _ := g.AsPoly()      // p points into g; do not outlive g
+r := p.Exterior()       // same
+
+kept := r.Clone()       // cheap: bumps the C reference counter
+keptCopy := r.Copy()    // deep copy
+// kept and keptCopy now own their data and stay valid after g is collected
+```
+
+For the v0.1 → v1.0 API differences, see
+[API-MIGRATE-FROM-0.1-TO-1.0.md](API-MIGRATE-FROM-0.1-TO-1.0.md).
 
 #### Predicates
 
