@@ -26,8 +26,8 @@ type LineString []Point
 // Polygon describes a polygon by its exterior ring and optional holes. It is
 // the plain-value form used by the geometry constructors.
 type Polygon struct {
-	Exterior []Point
-	Holes    [][]Point
+	Exterior LineString
+	Holes    []LineString
 }
 
 func cPoint(p Point) C.struct_tg_point {
