@@ -22,7 +22,7 @@ func (g *Geom) Rect() Rect {
 // FullRect returns the minimum bounding rectangle on all dimensions and the
 // number of dimensions. It returns dims == 0 for a nil geometry.
 func (g *Geom) FullRect() (min, max [4]float64, dims int) {
-	if g.cg == nil {
+	if g == nil || g.cg == nil {
 		return min, max, 0
 	}
 
