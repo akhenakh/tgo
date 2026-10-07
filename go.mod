@@ -1,6 +1,6 @@
 module github.com/akhenakh/tgo
 
-go 1.21.1
+go 1.23
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect

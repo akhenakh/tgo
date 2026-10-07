@@ -48,7 +48,7 @@ func TestUnmarshalWKBEWKB(t *testing.T) {
 
 			g, err := UnmarshalWKB(data)
 			require.NoError(t, err)
-			require.Equal(t, tt.asText, g.AsText())
+			require.Equal(t, tt.asText, g.AsWKT())
 		})
 	}
 }

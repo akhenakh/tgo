@@ -21,7 +21,7 @@ input := "POLYGON((0 0,0 1,1 1,1 0,0 0))"
 g, _ := tgo.UnmarshalWKT(input)
 
 // Marshal to WKT
-output := g.AsText()
+output := g.AsWKT()
 fmt.Println(output) // Prints: POLYGON((0 0,0 1,1 1,1 0,0 0))
 ```
 
@@ -61,7 +61,7 @@ if found != nil {
 input := "POLYGON((0 0,0 1,1 1,1 0,0 0))"
 g, _ := tgo.UnmarshalWKT(input)
 
-if g.Types() == tgo.Polygon() {
+if g.Type() == tgo.TypePolygon() {
 	p, _ := g.AsPoly()
 	p.HolesCount()
 }

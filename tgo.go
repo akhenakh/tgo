@@ -60,27 +60,31 @@ type Geom struct {
 type GeomType uint8
 
 const (
-	Point              GeomType = iota + 1 // Point.
-	LineString                             // LineString.
-	Polygon                                // Polygon.
-	MultiPoint                             // MultiPoint, collection of points.
-	MultiLineString                        // MultiLineString, collection of linestrings.
-	MultiPolygon                           // MultiPolygon, collection of polygons.
-	GeometryCollection                     // GeometryCollection, collection of geometries.
+	TypePoint              GeomType = iota + 1 // Point.
+	TypeLineString                             // LineString.
+	TypePolygon                                // Polygon.
+	TypeMultiPoint                             // MultiPoint, collection of points.
+	TypeMultiLineString                        // MultiLineString, collection of linestrings.
+	TypeMultiPolygon                           // MultiPolygon, collection of polygons.
+	TypeGeometryCollection                     // GeometryCollection, collection of geometries.
 )
 
+// IndexType is the indexing strategy used for rings, lines and polygons.
 type IndexType uint32
 
+// Indexing options. IndexDefault lets the library pick (IndexNatural unless
+// changed via SetIndex).
 const (
-	None     IndexType = iota + 1 // no indexing available, or disabled
-	Natural                       // indexing with natural ring order, for rings/lines
-	YStripes                      // indexing using segment striping, rings only
+	IndexDefault  IndexType = iota // Library default.
+	IndexNone                      // No indexing available, or disabled.
+	IndexNatural                   // Indexing with natural ring order, for rings/lines.
+	IndexYStripes                  // Indexing using segment striping, rings only.
 )
 
 // UnmarshalWKT parses geometries from a WKT representation.
 // Using the Natural indexation.
 func UnmarshalWKT(data string) (*Geom, error) {
-	return UnmarshalWKTAndIndex(data, Natural)
+	return UnmarshalWKTAndIndex(data, IndexNatural)
 }
 
 // UnmarshalWKTAndIndex parses geometries from a WKT representation,
@@ -104,7 +108,7 @@ func UnmarshalWKTAndIndex(data string, idxt IndexType) (*Geom, error) {
 // UnmarshalWKB parses geometries from a WKB representation.
 // Using the Natural indexation.
 func UnmarshalWKB(data []byte) (*Geom, error) {
-	return UnmarshalWKBAndIndex(data, Natural)
+	return UnmarshalWKBAndIndex(data, IndexNatural)
 }
 
 // UnmarshalWKBAndIndex parses geometries from a WKB representation,
@@ -132,7 +136,7 @@ func UnmarshalWKBAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 // UnmarshalGeoJSON parses geometries from a GeoJSON representation.
 // Using the Natural indexation.
 func UnmarshalGeoJSON(data []byte) (*Geom, error) {
-	return UnmarshalGeoJSONAndIndex(data, Natural)
+	return UnmarshalGeoJSONAndIndex(data, IndexNatural)
 }
 
 // UnmarshalGeoJSONAndIndex parses geometries from a GeoJSON representation,
@@ -159,7 +163,7 @@ func UnmarshalGeoJSONAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 
 // Parse data into a geometry by auto detecting the input type. The input data can be WKB, WKT, Hex, or GeoJSON.
 func Parse(data []byte) (*Geom, error) {
-	return ParseAndIndex(data, Natural)
+	return ParseAndIndex(data, IndexNatural)
 }
 
 // Parse data into a geometry by auto detecting the input type. The input data can be WKB, WKT, Hex, or GeoJSON.
@@ -280,7 +284,7 @@ func (g *Geom) AsPoly() (*Poly, bool) {
 
 // AsMultiPoly returns a MultiPoly of the geometry, returns false if not applicable.
 func (g *Geom) AsMultiPoly() (*MultiPoly, bool) {
-	if g.Type() != MultiPolygon {
+	if g.Type() != TypeMultiPolygon {
 		return nil, false
 	}
 	count := C.tg_geom_num_polys(g.cg)
@@ -292,37 +296,45 @@ func (g *Geom) AsMultiPoly() (*MultiPoly, bool) {
 	return mp, true
 }
 
-// AsText returns geometry as WKT
-func (g *Geom) AsText() string {
+// AsWKT returns the geometry as Well-Known Text.
+func (g *Geom) AsWKT() string {
 	if g.cg == nil {
 		return ""
 	}
 
 	csz := C.tg_geom_wkt(g.cg, nil, C.size_t(0))
+	if csz == 0 {
+		return ""
+	}
 
 	cwkt := C.malloc(csz + 1)
-	C.tg_geom_wkt(g.cg, (*C.char)(cwkt), csz+1)
 	defer C.free(cwkt)
+	C.tg_geom_wkt(g.cg, (*C.char)(cwkt), csz+1)
 	return C.GoString((*C.char)(cwkt))
+}
+
+// String implements fmt.Stringer and returns the geometry as Well-Known Text.
+func (g *Geom) String() string {
+	return g.AsWKT()
 }
 
 // Type returns the geometry type.
 func (g *Geom) Type() GeomType {
 	switch C.tg_geom_typeof(g.cg) {
 	case C.TG_POINT:
-		return Point
+		return TypePoint
 	case C.TG_LINESTRING:
-		return LineString
+		return TypeLineString
 	case C.TG_POLYGON:
-		return Polygon
+		return TypePolygon
 	case C.TG_MULTIPOINT:
-		return MultiPoint
+		return TypeMultiPoint
 	case C.TG_MULTILINESTRING:
-		return MultiLineString
+		return TypeMultiLineString
 	case C.TG_MULTIPOLYGON:
-		return MultiPolygon
+		return TypeMultiPolygon
 	case C.TG_GEOMETRYCOLLECTION:
-		return GeometryCollection
+		return TypeGeometryCollection
 	}
 
 	return 0

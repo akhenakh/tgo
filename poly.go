@@ -31,9 +31,9 @@ func (p *Poly) IsClockWise() bool {
 	return bool(C.tg_poly_clockwise(p.cp))
 }
 
-// AsText returns the representation of the poly as WKT.
-func (p *Poly) AsText() string {
-	return p.AsGeom().AsText()
+// AsWKT returns the representation of the poly as WKT.
+func (p *Poly) AsWKT() string {
+	return p.AsGeom().AsWKT()
 }
 
 // HolesCount returns the holes count.
@@ -56,9 +56,9 @@ func (mp *MultiPoly) AsGeom() *Geom {
 	}
 }
 
-// AsText returns the representation of the multipoly as WKT.
-func (mp *MultiPoly) AsText() string {
-	return mp.AsGeom().AsText()
+// AsWKT returns the representation of the multipoly as WKT.
+func (mp *MultiPoly) AsWKT() string {
+	return mp.AsGeom().AsWKT()
 }
 
 // PolygonsCount returns the count of polygons in the multipoly.

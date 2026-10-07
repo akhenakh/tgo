@@ -29,9 +29,9 @@ func (r *Ring) AsPoly() *Poly {
 	}
 }
 
-// AsText returns the Well-Known Text representation of the ring.
-func (r *Ring) AsText() string {
-	return r.AsGeom().AsText()
+// AsWKT returns the Well-Known Text representation of the ring.
+func (r *Ring) AsWKT() string {
+	return r.AsGeom().AsWKT()
 }
 
 // Area returns the area of the ring.

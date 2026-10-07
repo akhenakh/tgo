@@ -30,8 +30,8 @@ func TestMultiPoly_PolygonsCount(t *testing.T) {
 			require.NoError(t, err)
 			mp, valid := g.AsMultiPoly()
 			require.True(t, valid)
-			require.Equal(t, tt.data, mp.AsGeom().AsText())
-			require.Equal(t, MultiPolygon, mp.AsGeom().Type())
+			require.Equal(t, tt.data, mp.AsGeom().AsWKT())
+			require.Equal(t, TypeMultiPolygon, mp.AsGeom().Type())
 			require.Equal(t, tt.want, mp.PolygonsCount())
 		})
 	}
@@ -84,7 +84,7 @@ func TestMultiPoly_PolygonAt(t *testing.T) {
 				return
 			}
 
-			require.Equal(t, tt.want, p.AsText())
+			require.Equal(t, tt.want, p.AsWKT())
 		})
 	}
 }

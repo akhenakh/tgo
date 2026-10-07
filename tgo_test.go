@@ -37,7 +37,7 @@ func TestUnmarshalWKT(t *testing.T) {
 			if tt.wantErr {
 				return
 			}
-			require.Equal(t, tt.asText, g.AsText())
+			require.Equal(t, tt.asText, g.AsWKT())
 		})
 	}
 }
@@ -74,7 +74,7 @@ func TestUnmarshalWKB(t *testing.T) {
 				return
 			}
 
-			require.Equal(t, tt.asText, g.AsText())
+			require.Equal(t, tt.asText, g.AsWKT())
 		})
 	}
 }
@@ -108,19 +108,19 @@ func TestType(t *testing.T) {
 		{
 			"happy path loading point",
 			"POINT(3.4960937500000044 46.92577378420556)",
-			Point,
+			TypePoint,
 		},
 
 		{
 			"happy linestring",
 			`LINESTRING(16.679687500000004 21.62409085687848,26.171875000000004 16.980468908152968,31.796875000000004 22.60118572275353)`,
-			LineString,
+			TypeLineString,
 		},
 
 		{
 			"happy poilygon",
 			`POLYGON((25.117187500000004 27.22274144161766,27.753906250000004 22.276241186534797,14.746093750000004 22.763371521603837,25.117187500000004 27.22274144161766))`,
-			Polygon,
+			TypePolygon,
 		},
 	}
 	for _, tt := range tests {
@@ -204,7 +204,7 @@ func TestUnmarshalGeoJSON(t *testing.T) {
 			if tt.wantErr {
 				return
 			}
-			require.Equal(t, tt.asText, g.AsText())
+			require.Equal(t, tt.asText, g.AsWKT())
 		})
 	}
 }
@@ -484,7 +484,7 @@ func TestIntersects(t *testing.T) {
 					if got != tt.want {
 						t.Errorf(
 							"\ninput1: %s\ninput2: %s\ngot:  %v\nwant: %v\n",
-							g1.AsText(), g2.AsText(), got, tt.want,
+							g1.AsWKT(), g2.AsWKT(), got, tt.want,
 						)
 					}
 				}
@@ -521,8 +521,8 @@ func TestAsPoly(t *testing.T) {
 			p, valid := g.AsPoly()
 			require.Equal(t, tt.valid, valid)
 			if valid {
-				require.Equal(t, tt.data, p.AsGeom().AsText())
-				require.Equal(t, Polygon, p.AsGeom().Type())
+				require.Equal(t, tt.data, p.AsGeom().AsWKT())
+				require.Equal(t, TypePolygon, p.AsGeom().Type())
 			}
 		})
 	}
@@ -572,7 +572,7 @@ func TestParse(t *testing.T) {
 				return
 			}
 
-			require.Equal(t, tt.asText, g.AsText())
+			require.Equal(t, tt.asText, g.AsWKT())
 		})
 	}
 }
