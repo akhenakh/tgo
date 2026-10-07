@@ -296,6 +296,18 @@ func (g *Geom) StabOne(x, y float64) *Geom {
 // 	C.tg_ring_free(r)
 // }
 
+// AsLine returns a Line of the geometry, returns false if not applicable. The
+// result is a view that must not outlive the geometry.
+func (g *Geom) AsLine() (*Line, bool) {
+	cl := C.tg_geom_line(g.cg)
+
+	if cl == nil {
+		return nil, false
+	}
+
+	return &Line{cl: cl}, true
+}
+
 // AsPoly returns a Poly of the geometry, returns false if not applicable.
 func (g *Geom) AsPoly() (*Poly, bool) {
 	cp := C.tg_geom_poly(g.cg)

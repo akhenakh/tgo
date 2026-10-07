@@ -63,7 +63,7 @@ g, _ := tgo.UnmarshalWKT(input)
 
 if g.Type() == tgo.TypePolygon() {
 	p, _ := g.AsPoly()
-	p.HolesCount()
+	p.NumHoles()
 }
 ```
 

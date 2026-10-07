@@ -77,6 +77,27 @@ func (g *Geom) PointAt(index int) (Point, bool) {
 	return goPoint(C.tg_geom_point_at(g.cg, C.int(index))), true
 }
 
+// NumLines returns the number of lines in a MultiLineString geometry, or zero
+// for any other type.
+func (g *Geom) NumLines() int {
+	return int(C.tg_geom_num_lines(g.cg))
+}
+
+// LineAt returns the line at index for a MultiLineString geometry. The
+// returned Line is a view into g and must not outlive it.
+func (g *Geom) LineAt(index int) (*Line, bool) {
+	if index < 0 || index >= g.NumLines() {
+		return nil, false
+	}
+
+	cl := C.tg_geom_line_at(g.cg, C.int(index))
+	if cl == nil {
+		return nil, false
+	}
+
+	return &Line{cl: cl}, true
+}
+
 // NumPolys returns the number of polygons in a MultiPolygon geometry, or zero
 // for any other type.
 func (g *Geom) NumPolys() int {

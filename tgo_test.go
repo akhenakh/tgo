@@ -96,7 +96,7 @@ func TestClockWise(t *testing.T) {
 	require.NotNil(t, g)
 	p, valid := g.AsPoly()
 	require.True(t, valid)
-	require.False(t, p.IsClockWise()) // modern GeoJSON are CCW
+	require.False(t, p.Clockwise()) // modern GeoJSON are CCW
 }
 
 func TestType(t *testing.T) {

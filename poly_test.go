@@ -32,7 +32,7 @@ func TestMultiPoly_PolygonsCount(t *testing.T) {
 			require.True(t, valid)
 			require.Equal(t, tt.data, mp.AsGeom().AsWKT())
 			require.Equal(t, TypeMultiPolygon, mp.AsGeom().Type())
-			require.Equal(t, tt.want, mp.PolygonsCount())
+			require.Equal(t, tt.want, mp.NumPolygons())
 		})
 	}
 }
@@ -113,7 +113,7 @@ func TestPoly_HolesCount(t *testing.T) {
 			require.NoError(t, err)
 			p, valid := g.AsPoly()
 			require.True(t, valid)
-			require.Equal(t, tt.want, p.HolesCount())
+			require.Equal(t, tt.want, p.NumHoles())
 		})
 	}
 }
