@@ -48,7 +48,6 @@ import "C"
 
 import (
 	"errors"
-	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -81,38 +80,48 @@ const (
 	IndexYStripes                  // Indexing using segment striping, rings only.
 )
 
-// UnmarshalWKT parses geometries from a WKT representation.
-// Using the Natural indexation.
-func UnmarshalWKT(data string) (*Geom, error) {
-	return UnmarshalWKTAndIndex(data, IndexNatural)
-}
-
-// UnmarshalWKTAndIndex parses geometries from a WKT representation,
-// and sets the indexation type.
-func UnmarshalWKTAndIndex(data string, idxt IndexType) (*Geom, error) {
-	cd := C.CString(data)
-	defer C.free(unsafe.Pointer(cd))
-
-	cg := C.tg_parse_wkt_ix(cd, C.enum_tg_index(idxt))
-	cerr := C.tg_geom_error(cg)
-	if cerr != nil {
-		return nil, fmt.Errorf("%s", C.GoString(cerr))
+// wrapGeom takes ownership of cg and wraps it as a *Geom with a finalizer.
+// If cg represents a parse error it is freed and the error is returned.
+func wrapGeom(cg *C.struct_tg_geom) (*Geom, error) {
+	if cerr := C.tg_geom_error(cg); cerr != nil {
+		C.tg_geom_free(cg)
+		return nil, errors.New(C.GoString(cerr))
 	}
 
-	g := &Geom{cg}
+	g := &Geom{cg: cg}
 	runtime.SetFinalizer(g, (*Geom).free)
 
 	return g, nil
 }
 
-// UnmarshalWKB parses geometries from a WKB representation.
+// UnmarshalWKT parses a geometry from a WKT representation.
+// Using the Natural indexation.
+func UnmarshalWKT(data string) (*Geom, error) {
+	return UnmarshalWKTAndIndex(data, IndexNatural)
+}
+
+// UnmarshalWKTAndIndex parses a geometry from a WKT representation,
+// and sets the indexing type.
+func UnmarshalWKTAndIndex(data string, idxt IndexType) (*Geom, error) {
+	if data == "" {
+		return nil, errors.New("empty data")
+	}
+
+	cdata := C.CBytes([]byte(data))
+	defer C.free(cdata)
+
+	cg := C.tg_parse_wktn_ix((*C.char)(cdata), C.size_t(len(data)), C.enum_tg_index(idxt))
+	return wrapGeom(cg)
+}
+
+// UnmarshalWKB parses a geometry from a WKB representation.
 // Using the Natural indexation.
 func UnmarshalWKB(data []byte) (*Geom, error) {
 	return UnmarshalWKBAndIndex(data, IndexNatural)
 }
 
-// UnmarshalWKBAndIndex parses geometries from a WKB representation,
-// and sets the indexation type.
+// UnmarshalWKBAndIndex parses a geometry from a WKB representation,
+// and sets the indexing type.
 func UnmarshalWKBAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	if len(data) == 0 {
 		return nil, errors.New("empty data")
@@ -122,25 +131,17 @@ func UnmarshalWKBAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	defer C.free(cdata)
 
 	cg := C.tg_parse_wkb_ix((*C.uchar)(cdata), C.size_t(len(data)), C.enum_tg_index(idxt))
-	cerr := C.tg_geom_error(cg)
-	if cerr != nil {
-		return nil, fmt.Errorf("%s", C.GoString(cerr))
-	}
-
-	g := &Geom{cg}
-	runtime.SetFinalizer(g, (*Geom).free)
-
-	return g, nil
+	return wrapGeom(cg)
 }
 
-// UnmarshalGeoJSON parses geometries from a GeoJSON representation.
+// UnmarshalGeoJSON parses a geometry from a GeoJSON representation.
 // Using the Natural indexation.
 func UnmarshalGeoJSON(data []byte) (*Geom, error) {
 	return UnmarshalGeoJSONAndIndex(data, IndexNatural)
 }
 
-// UnmarshalGeoJSONAndIndex parses geometries from a GeoJSON representation,
-// and sets the indexation type.
+// UnmarshalGeoJSONAndIndex parses a geometry from a GeoJSON representation,
+// and sets the indexing type.
 func UnmarshalGeoJSONAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	if len(data) == 0 {
 		return nil, errors.New("empty data")
@@ -149,24 +150,58 @@ func UnmarshalGeoJSONAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	cdata := C.CBytes(data)
 	defer C.free(cdata)
 
-	cg := C.tg_parse_geojson_ix((*C.char)(cdata), C.enum_tg_index(idxt))
-	cerr := C.tg_geom_error(cg)
-	if cerr != nil {
-		return nil, fmt.Errorf("%s", C.GoString(cerr))
-	}
-
-	g := &Geom{cg}
-	runtime.SetFinalizer(g, (*Geom).free)
-
-	return g, nil
+	cg := C.tg_parse_geojsonn_ix((*C.char)(cdata), C.size_t(len(data)), C.enum_tg_index(idxt))
+	return wrapGeom(cg)
 }
 
-// Parse data into a geometry by auto detecting the input type. The input data can be WKB, WKT, Hex, or GeoJSON.
+// UnmarshalHex parses a geometry from a hex-encoded WKB representation.
+// Using the Natural indexation.
+func UnmarshalHex(data string) (*Geom, error) {
+	return UnmarshalHexAndIndex(data, IndexNatural)
+}
+
+// UnmarshalHexAndIndex parses a geometry from a hex-encoded WKB
+// representation, and sets the indexing type.
+func UnmarshalHexAndIndex(data string, idxt IndexType) (*Geom, error) {
+	if data == "" {
+		return nil, errors.New("empty data")
+	}
+
+	cdata := C.CBytes([]byte(data))
+	defer C.free(cdata)
+
+	cg := C.tg_parse_hexn_ix((*C.char)(cdata), C.size_t(len(data)), C.enum_tg_index(idxt))
+	return wrapGeom(cg)
+}
+
+// UnmarshalGeoBin parses a geometry from the geobin representation.
+// Using the Natural indexation.
+func UnmarshalGeoBin(data []byte) (*Geom, error) {
+	return UnmarshalGeoBinAndIndex(data, IndexNatural)
+}
+
+// UnmarshalGeoBinAndIndex parses a geometry from the geobin representation,
+// and sets the indexing type.
+func UnmarshalGeoBinAndIndex(data []byte, idxt IndexType) (*Geom, error) {
+	if len(data) == 0 {
+		return nil, errors.New("empty data")
+	}
+
+	cdata := C.CBytes(data)
+	defer C.free(cdata)
+
+	cg := C.tg_parse_geobin_ix((*C.uchar)(cdata), C.size_t(len(data)), C.enum_tg_index(idxt))
+	return wrapGeom(cg)
+}
+
+// Parse parses data into a geometry by auto-detecting the input type. The
+// input data can be WKB, WKT, Hex, or GeoJSON.
 func Parse(data []byte) (*Geom, error) {
 	return ParseAndIndex(data, IndexNatural)
 }
 
-// Parse data into a geometry by auto detecting the input type. The input data can be WKB, WKT, Hex, or GeoJSON.
+// ParseAndIndex parses data into a geometry by auto-detecting the input type.
+// The input data can be WKB, WKT, Hex, or GeoJSON.
 func ParseAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	if len(data) == 0 {
 		return nil, errors.New("empty data")
@@ -176,16 +211,7 @@ func ParseAndIndex(data []byte, idxt IndexType) (*Geom, error) {
 	defer C.free(cdata)
 
 	cg := C.tg_parse_ix(unsafe.Pointer(cdata), C.size_t(len(data)), C.enum_tg_index(idxt))
-	cerr := C.tg_geom_error(cg)
-	if cerr != nil {
-		return nil, fmt.Errorf("%s", C.GoString(cerr))
-	}
-
-	g := &Geom{cg}
-	runtime.SetFinalizer(g, (*Geom).free)
-
-	return g, nil
-
+	return wrapGeom(cg)
 }
 
 // Equals returns true if the two geometries are equal
@@ -294,28 +320,6 @@ func (g *Geom) AsMultiPoly() (*MultiPoly, bool) {
 
 	mp := &MultiPoly{cg: g.cg}
 	return mp, true
-}
-
-// AsWKT returns the geometry as Well-Known Text.
-func (g *Geom) AsWKT() string {
-	if g.cg == nil {
-		return ""
-	}
-
-	csz := C.tg_geom_wkt(g.cg, nil, C.size_t(0))
-	if csz == 0 {
-		return ""
-	}
-
-	cwkt := C.malloc(csz + 1)
-	defer C.free(cwkt)
-	C.tg_geom_wkt(g.cg, (*C.char)(cwkt), csz+1)
-	return C.GoString((*C.char)(cwkt))
-}
-
-// String implements fmt.Stringer and returns the geometry as Well-Known Text.
-func (g *Geom) String() string {
-	return g.AsWKT()
 }
 
 // Type returns the geometry type.
