@@ -120,7 +120,7 @@ func GeoBinFullRect(data []byte) (min, max [4]float64, dims int) {
 
 	var cmin, cmax [4]C.double
 	n := C.tg_geobin_fullrect((*C.uchar)(unsafe.Pointer(&data[0])), C.size_t(len(data)), &cmin[0], &cmax[0])
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		min[i] = float64(cmin[i])
 		max[i] = float64(cmax[i])
 	}

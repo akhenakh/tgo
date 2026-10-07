@@ -161,7 +161,7 @@ func (g *Geom) Search(r Rect) iter.Seq2[int, *Geom] {
 		}
 
 		items := unsafe.Slice(ctx.items, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if !yield(int(items[i].index), &Geom{cg: items[i].geom}) {
 				return
 			}
@@ -176,7 +176,7 @@ func yieldSegmentPairs(ctx C.struct_tgo_seg_search_ctx, yield func(SegmentPair) 
 	}
 
 	items := unsafe.Slice(ctx.items, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ok := yield(SegmentPair{
 			A:      goSegment(items[i].a),
 			AIndex: int(items[i].aidx),
@@ -258,7 +258,7 @@ func nearestFrom(cr *C.struct_tg_ring, x, y float64, k int) []NearestSegment {
 	m := int(ctx.len)
 	out := make([]NearestSegment, m)
 	arr := unsafe.Slice(ctx.results, m)
-	for i := 0; i < m; i++ {
+	for i := range m {
 		out[i] = NearestSegment{
 			Segment:  goSegment(arr[i].seg),
 			Distance: float64(arr[i].dist),

@@ -28,7 +28,7 @@ func (g *Geom) FullRect() (min, max [4]float64, dims int) {
 
 	var cmin, cmax [4]C.double
 	n := C.tg_geom_fullrect(g.cg, &cmin[0], &cmax[0])
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		min[i] = float64(cmin[i])
 		max[i] = float64(cmax[i])
 	}
