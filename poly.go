@@ -8,10 +8,12 @@ package tgo
 import "C"
 import "unsafe"
 
+// Poly represents a polygon geometry.
 type Poly struct {
 	cp *C.struct_tg_poly
 }
 
+// MultiPoly represents a multi-polygon geometry object.
 type MultiPoly struct {
 	cg *C.struct_tg_geom
 }

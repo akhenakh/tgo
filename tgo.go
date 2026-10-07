@@ -189,30 +189,41 @@ func Equals(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_equals(g1.cg, g2.cg))
 }
 
+// Intersects reports whether two geometries intersect.
 func Intersects(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_intersects(g1.cg, g2.cg))
 }
 
+// Disjoint reports whether two geometries are disjoint (do not intersect).
 func Disjoint(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_disjoint(g1.cg, g2.cg))
 }
 
+// Contains reports whether g1 contains g2.
 func Contains(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_contains(g1.cg, g2.cg))
 }
 
+// Within reports whether the geometry g1 is within the geometry g2.
 func Within(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_within(g1.cg, g2.cg))
 }
 
+// Covers reports whether the first geometry covers the second geometry.
+// A geometry g1 covers g2 if no point of g2 lies outside g1.
 func Covers(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_covers(g1.cg, g2.cg))
 }
 
+// CoveredBy reports whether the geometry g1 is covered by geometry g2.
+// A geometry g1 is covered by g2 if every point of g1 is also a point of g2.
 func CoveredBy(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_coveredby(g1.cg, g2.cg))
 }
 
+// Touches reports whether two geometries touch each other.
+// Two geometries are considered to touch if they share at least one point in their boundaries,
+// but do not intersect in their interiors. The function returns true if the geometries touch, false otherwise.
 func Touches(g1, g2 *Geom) bool {
 	return bool(C.tg_geom_touches(g1.cg, g2.cg))
 }
