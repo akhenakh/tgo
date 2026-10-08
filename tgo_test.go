@@ -154,6 +154,14 @@ func TestStabOne(t *testing.T) {
 			46.758492232981865,
 			``,
 		},
+		{
+			// Overlapping features: the first encountered must win, not the last.
+			"Stab overlapping keeps first",
+			`{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"n":"first"},"geometry":{"coordinates":[[[0,0],[0,1],[1,1],[1,0],[0,0]]],"type":"Polygon"},"id":0},{"type":"Feature","properties":{"n":"last"},"geometry":{"coordinates":[[[0,0],[0,1],[1,1],[1,0],[0,0]]],"type":"Polygon"},"id":1}]}`,
+			0.5,
+			0.5,
+			`{"properties":{"n":"first"},"id":0}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

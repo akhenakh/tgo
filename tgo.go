@@ -38,7 +38,7 @@ bool pip_iter_one(const struct tg_geom *child, int index, void *udata) {
 	struct pip_iter_one_ctx *ctx = udata;
 	if (tg_geom_intersects_xy(child, ctx->pip_point.x, ctx->pip_point.y)) {
 		ctx->geom = (struct tg_geom *)child;
-		return true;
+		return false; // stop: keep the first match
 	}
 	return true;
 }
