@@ -278,14 +278,17 @@ func (g *Geom) StabOne(x, y float64) *Geom {
 	// creating a point
 	p := C.struct_tg_point{C.double(x), C.double(y)}
 
-	// creating a context for the iterator
-	ctx := C.struct_pip_iter_one_ctx{pip_point: p}
+	// creating a context for the iterator. It lives in C memory because
+	// pip_iter_one writes ctx.geom from C, and C must not write to Go memory.
+	ctx := cAlloc[C.struct_pip_iter_one_ctx]()
+	defer C.free(unsafe.Pointer(ctx))
+	ctx.pip_point = p
 
 	// calling the C func tg_geom_search
 	// void tg_geom_search(const struct tg_geom *geom, struct tg_rect rect,
 	//	bool (*iter)(const struct tg_geom *geom, int index, void *udata),
 	//	void *udata);
-	C.tg_geom_search(g.cg, C.tg_point_rect(p), (*[0]byte)(C.pip_iter_one), (unsafe.Pointer(&ctx)))
+	C.tg_geom_search(g.cg, C.tg_point_rect(p), (*[0]byte)(C.pip_iter_one), (unsafe.Pointer(ctx)))
 	if ctx.geom != nil {
 		return &Geom{cg: ctx.geom}
 	}

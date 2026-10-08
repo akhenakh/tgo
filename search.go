@@ -151,8 +151,9 @@ func (g *Geom) Search(r Rect) iter.Seq2[int, *Geom] {
 			return
 		}
 
-		var ctx C.struct_tgo_geom_search_ctx
-		C.tg_geom_search(g.cg, cRect(r), (*[0]byte)(C.tgo_geom_search_collect), unsafe.Pointer(&ctx))
+		ctx := cAlloc[C.struct_tgo_geom_search_ctx]()
+		defer C.free(unsafe.Pointer(ctx))
+		C.tg_geom_search(g.cg, cRect(r), (*[0]byte)(C.tgo_geom_search_collect), unsafe.Pointer(ctx))
 		defer C.free(unsafe.Pointer(ctx.items))
 
 		n := int(ctx.len)
@@ -169,7 +170,7 @@ func (g *Geom) Search(r Rect) iter.Seq2[int, *Geom] {
 	}
 }
 
-func yieldSegmentPairs(ctx C.struct_tgo_seg_search_ctx, yield func(SegmentPair) bool) {
+func yieldSegmentPairs(ctx *C.struct_tgo_seg_search_ctx, yield func(SegmentPair) bool) {
 	n := int(ctx.len)
 	if n == 0 {
 		return
@@ -195,8 +196,9 @@ func (r *Ring) SearchLine(l *Line) iter.Seq[SegmentPair] {
 		if r == nil || r.cr == nil || l == nil || l.cl == nil {
 			return
 		}
-		var ctx C.struct_tgo_seg_search_ctx
-		C.tg_ring_line_search(r.cr, l.cl, (*[0]byte)(C.tgo_seg_collect), unsafe.Pointer(&ctx))
+		ctx := cAlloc[C.struct_tgo_seg_search_ctx]()
+		defer C.free(unsafe.Pointer(ctx))
+		C.tg_ring_line_search(r.cr, l.cl, (*[0]byte)(C.tgo_seg_collect), unsafe.Pointer(ctx))
 		defer C.free(unsafe.Pointer(ctx.items))
 		yieldSegmentPairs(ctx, yield)
 	}
@@ -208,8 +210,9 @@ func (r *Ring) SearchRing(o *Ring) iter.Seq[SegmentPair] {
 		if r == nil || r.cr == nil || o == nil || o.cr == nil {
 			return
 		}
-		var ctx C.struct_tgo_seg_search_ctx
-		C.tg_ring_ring_search(r.cr, o.cr, (*[0]byte)(C.tgo_seg_collect), unsafe.Pointer(&ctx))
+		ctx := cAlloc[C.struct_tgo_seg_search_ctx]()
+		defer C.free(unsafe.Pointer(ctx))
+		C.tg_ring_ring_search(r.cr, o.cr, (*[0]byte)(C.tgo_seg_collect), unsafe.Pointer(ctx))
 		defer C.free(unsafe.Pointer(ctx.items))
 		yieldSegmentPairs(ctx, yield)
 	}
@@ -221,8 +224,9 @@ func (l *Line) SearchLine(o *Line) iter.Seq[SegmentPair] {
 		if l == nil || l.cl == nil || o == nil || o.cl == nil {
 			return
 		}
-		var ctx C.struct_tgo_seg_search_ctx
-		C.tg_line_line_search(l.cl, o.cl, (*[0]byte)(C.tgo_seg_collect), unsafe.Pointer(&ctx))
+		ctx := cAlloc[C.struct_tgo_seg_search_ctx]()
+		defer C.free(unsafe.Pointer(ctx))
+		C.tg_line_line_search(l.cl, o.cl, (*[0]byte)(C.tgo_seg_collect), unsafe.Pointer(ctx))
 		defer C.free(unsafe.Pointer(ctx.items))
 		yieldSegmentPairs(ctx, yield)
 	}
@@ -242,18 +246,18 @@ func nearestFrom(cr *C.struct_tg_ring, x, y float64, k int) []NearestSegment {
 	}
 	defer C.free(results)
 
-	ctx := C.struct_tgo_nearest_ctx{
-		point:   cPoint(Point{X: x, Y: y}),
-		results: (*C.struct_tgo_nearest_result)(results),
-		k:       C.int(k),
-		cap:     C.int(n),
-	}
+	ctx := cAlloc[C.struct_tgo_nearest_ctx]()
+	defer C.free(unsafe.Pointer(ctx))
+	ctx.point = cPoint(Point{X: x, Y: y})
+	ctx.results = (*C.struct_tgo_nearest_result)(results)
+	ctx.k = C.int(k)
+	ctx.cap = C.int(n)
 
 	C.tg_ring_nearest_segment(cr,
 		(*[0]byte)(C.tgo_nearest_rect_dist),
 		(*[0]byte)(C.tgo_nearest_seg_dist),
 		(*[0]byte)(C.tgo_nearest_iter),
-		unsafe.Pointer(&ctx))
+		unsafe.Pointer(ctx))
 
 	m := int(ctx.len)
 	out := make([]NearestSegment, m)

@@ -2,6 +2,7 @@ package tgo
 
 /*
 #include "tg.h"
+#include <stdlib.h>
 */
 import "C"
 import "unsafe"
@@ -26,11 +27,20 @@ func (g *Geom) FullRect() (min, max [4]float64, dims int) {
 		return min, max, 0
 	}
 
-	var cmin, cmax [4]C.double
-	n := C.tg_geom_fullrect(g.cg, &cmin[0], &cmax[0])
+	// The min/max arrays live in C memory: tg_geom_fullrect writes them, and C
+	// must not write to Go memory.
+	cmin := cAllocN[C.double](4)
+	defer C.free(unsafe.Pointer(cmin))
+	cmax := cAllocN[C.double](4)
+	defer C.free(unsafe.Pointer(cmax))
+
+	n := C.tg_geom_fullrect(g.cg, cmin, cmax)
+
+	gmin := unsafe.Slice(cmin, 4)
+	gmax := unsafe.Slice(cmax, 4)
 	for i := range 4 {
-		min[i] = float64(cmin[i])
-		max[i] = float64(cmax[i])
+		min[i] = float64(gmin[i])
+		max[i] = float64(gmax[i])
 	}
 
 	return min, max, int(n)

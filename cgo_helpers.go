@@ -10,6 +10,19 @@ import "unsafe"
 // The c* helpers copy Go values into C-allocated memory so the buffers stay
 // alive for the duration of a C call. Each returns a cleanup function that
 // frees the buffer; calling it is always safe, including for empty slices.
+//
+// cAlloc and cAllocN allocate zeroed C memory for callback contexts. C code
+// must not write to Go memory, so contexts that C fills in belong in C memory;
+// passing a C pointer also keeps the call valid regardless of GC movement.
+// Callers free the result with C.free.
+
+func cAlloc[T any]() *T {
+	return (*T)(C.calloc(1, C.size_t(unsafe.Sizeof(*new(T)))))
+}
+
+func cAllocN[T any](n int) *T {
+	return (*T)(C.calloc(C.size_t(n), C.size_t(unsafe.Sizeof(*new(T)))))
+}
 
 func cPoints(pts []Point) (*C.struct_tg_point, func()) {
 	if len(pts) == 0 {
